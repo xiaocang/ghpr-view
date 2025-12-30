@@ -10,60 +10,35 @@ A lightweight macOS menu bar app for tracking your GitHub pull requests and revi
 - **Menu Bar App** - Lives in your menu bar, no dock icon clutter
 - **PR Overview** - View your authored PRs and review requests in one place
 - **Unresolved Comments** - Badge shows total unresolved comment count
-- **OAuth Authentication** - Secure GitHub login (no manual token entry)
+- **Secure Authentication** - GitHub Device Flow (no secrets, no tokens to manage)
 - **Auto-Refresh** - Configurable refresh interval (15s - 5min)
 - **Notifications** - Desktop alerts for new unresolved comments
 - **Search** - Filter PRs by title, repo, or author
 - **Quick Actions** - Click to open PR in browser, copy URL
 
-## Screenshots
+## Installation
 
-*Coming soon*
-
-## Requirements
-
-- macOS 13.0 or later
-- GitHub account
-- GitHub OAuth App (see setup below)
-
-## Setup
-
-### 1. Create a GitHub OAuth App
-
-1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
-2. Click **New OAuth App**
-3. Fill in the details:
-   - **Application name**: PR Dashboard (or your preferred name)
-   - **Homepage URL**: `https://github.com/xiaocang/ghpr-view`
-   - **Authorization callback URL**: `ghpr://oauth/callback`
-4. Click **Register application**
-5. Copy the **Client ID**
-
-### 2. Configure the App
-
-1. Open `PRDashboard/Logic/GitHubOAuthManager.swift`
-2. Replace `YOUR_CLIENT_ID` with your GitHub OAuth App Client ID:
-   ```swift
-   private let clientID = "Ov23liGCAVv1nOHzVVhf"
-   ```
-
-### 3. Build and Run
+### Homebrew (Recommended)
 
 ```bash
-# Clone the repository
-git clone https://github.com/xiaocang/ghpr-view.git
-cd ghpr-view
-
-# Build
-make build
-
-# Run
-make run
+brew install xiaocang/tap/prdashboard
 ```
 
-Or open `PRDashboard.xcodeproj` in Xcode and run from there.
+### Manual Download
+
+1. Download the latest release from [Releases](https://github.com/xiaocang/ghpr-view/releases)
+2. Extract the ZIP file
+3. Move `PRDashboard.app` to your Applications folder
+4. Open the app (you may need to right-click → Open the first time)
 
 ## Usage
+
+1. Click the menu bar icon to open the dashboard
+2. Click "Sign in with GitHub"
+3. Enter the displayed code at github.com/login/device
+4. Once authorized, your PRs will load automatically
+
+### Controls
 
 - **Left-click** menu bar icon - Open PR dashboard
 - **Right-click** menu bar icon - Show context menu (Quit)
@@ -77,55 +52,17 @@ Or open `PRDashboard.xcodeproj` in Xcode and run from there.
 - **Show Drafts** - Include/exclude draft PRs
 - **Notifications** - Enable/disable desktop notifications
 
-## Project Structure
+## Requirements
 
-```
-PRDashboard/
-├── PRDashboardApp.swift      # App entry point
-├── AppDelegate.swift         # App lifecycle
-├── Logic/
-│   ├── GitHubOAuthManager.swift   # OAuth2 with PKCE
-│   ├── GitHubAPIClient.swift      # GitHub GraphQL API
-│   ├── PRManager.swift            # PR state management
-│   ├── NotificationManager.swift  # Desktop notifications
-│   └── StatusBarController.swift  # Menu bar icon
-├── Models/
-│   ├── PullRequest.swift     # PR model
-│   ├── ReviewThread.swift    # Review thread model
-│   ├── Configuration.swift   # App settings
-│   └── PRList.swift          # PR list state
-├── ViewModels/
-│   └── PRListViewModel.swift # View state
-├── Views/
-│   ├── MainView.swift        # Main popover view
-│   ├── PRRowView.swift       # PR list row
-│   ├── SettingsView.swift    # Settings sheet
-│   └── Components/
-│       └── Badge.swift       # Count badge
-├── Storage/
-│   └── Keychain.swift        # Secure token storage
-└── Helpers/
-    └── DateFormatters.swift  # Date utilities
-```
+- macOS 13.0 or later
+- GitHub account
 
-## Development
-
-### Prerequisites
-
-- Xcode 15.0+
-- macOS 13.0+
-
-### Building
+## Building from Source
 
 ```bash
-# Debug build
-make build
-
-# Run the app
-make run
-
-# Clean build artifacts
-make clean
+git clone https://github.com/xiaocang/ghpr-view.git
+cd ghpr-view
+./run.sh
 ```
 
 ## License
