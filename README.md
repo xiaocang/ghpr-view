@@ -34,7 +34,7 @@ A lightweight macOS menu bar app for tracking your GitHub pull requests and revi
 2. Click **New OAuth App**
 3. Fill in the details:
    - **Application name**: PR Dashboard (or your preferred name)
-   - **Homepage URL**: `https://github.com/yourusername/ghpr-view`
+   - **Homepage URL**: `https://github.com/xiaocang/ghpr-view`
    - **Authorization callback URL**: `ghpr://oauth/callback`
 4. Click **Register application**
 5. Copy the **Client ID**
@@ -44,14 +44,14 @@ A lightweight macOS menu bar app for tracking your GitHub pull requests and revi
 1. Open `PRDashboard/Logic/GitHubOAuthManager.swift`
 2. Replace `YOUR_CLIENT_ID` with your GitHub OAuth App Client ID:
    ```swift
-   private let clientID = "your_actual_client_id_here"
+   private let clientID = "Ov23liGCAVv1nOHzVVhf"
    ```
 
 ### 3. Build and Run
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/ghpr-view.git
+git clone https://github.com/xiaocang/ghpr-view.git
 cd ghpr-view
 
 # Build

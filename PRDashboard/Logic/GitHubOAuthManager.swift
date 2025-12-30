@@ -7,7 +7,7 @@ class GitHubOAuthManager: NSObject, ObservableObject {
     // OAuth App credentials - Replace YOUR_CLIENT_ID with your actual Client ID
     // Create at: https://github.com/settings/developers
     // Callback URL: ghpr://oauth/callback
-    private let clientID = "YOUR_CLIENT_ID"
+    private let clientID = "Ov23liGCAVv1nOHzVVhf"
     private let redirectURI = "ghpr://oauth/callback"
     private let scope = "repo read:user"
 
