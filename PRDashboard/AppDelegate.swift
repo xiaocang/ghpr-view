@@ -55,12 +55,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             notificationManager?.requestPermission()
         }
 
-        // 11. Request notification permission after sign-in
+        // 11. Request notification permission and refresh PRs after sign-in
         oauthManager?.$authState
             .dropFirst()  // Skip initial value
             .filter { $0.isAuthenticated }
             .sink { [weak self] _ in
                 self?.notificationManager?.requestPermission()
+                Task { @MainActor in
+                    self?.prManager?.refresh()
+                }
             }
             .store(in: &cancellables)
     }

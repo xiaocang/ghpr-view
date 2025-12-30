@@ -43,17 +43,25 @@ final class PRManager: PRManagerType, ObservableObject {
     private func setupBindings() {
         // Update API client when auth state changes
         oauthManager.$authState
-            .receive(on: DispatchQueue.main)
+            .dropFirst()  // Skip initial value
             .sink { [weak self] authState in
-                self?.apiClient.updateToken(authState.accessToken ?? "")
-
-                // Clear data on sign out
-                if !authState.isAuthenticated {
-                    self?.prList = .empty
-                    self?.previousPRs = [:]
-                }
+                guard let self else { return }
+                self.handleAuthStateChange(authState)
             }
             .store(in: &cancellables)
+    }
+
+    private func handleAuthStateChange(_ authState: AuthState) {
+        print("[PRManager] handleAuthStateChange called, isAuthenticated=\(authState.isAuthenticated), username=\(authState.username ?? "nil")")
+        apiClient.updateToken(authState.accessToken ?? "")
+
+        if authState.isAuthenticated {
+            print("[PRManager] Calling refresh()...")
+            refresh()
+        } else {
+            prList = .empty
+            previousPRs = [:]
+        }
     }
 
     func enablePolling(_ enabled: Bool) {
@@ -67,7 +75,9 @@ final class PRManager: PRManagerType, ObservableObject {
             // Schedule periodic refresh
             let interval = max(configuration.refreshInterval, 15)
             timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-                self?.refresh()
+                Task { @MainActor in
+                    self?.refresh()
+                }
             }
         }
     }

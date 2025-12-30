@@ -248,11 +248,76 @@ struct AuthView: View {
 
             Spacer()
 
-            // Sign in button
-            Button(action: { viewModel.signIn() }) {
-                HStack(spacing: 8) {
-                    Image(systemName: "person.circle")
-                    Text("Sign in with GitHub")
+            if let deviceCode = viewModel.deviceCode {
+                // Device code view
+                deviceCodeView(deviceCode)
+            } else {
+                // Sign in button
+                Button(action: { viewModel.signIn() }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.circle")
+                        Text("Sign in with GitHub")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .padding(.horizontal, 40)
+                .disabled(viewModel.isAuthenticating)
+
+                // Info text
+                Text("Uses GitHub Device Flow for secure authentication")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            // Error display
+            if let error = viewModel.authError {
+                Text(error.localizedDescription)
+                    .font(.system(size: 12))
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+
+    private func deviceCodeView(_ deviceCode: DeviceCodeInfo) -> some View {
+        VStack(spacing: 16) {
+            // Instructions
+            Text("Enter this code on GitHub:")
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+
+            // User code display
+            HStack(spacing: 4) {
+                Text(deviceCode.userCode)
+                    .font(.system(size: 28, weight: .bold, design: .monospaced))
+                    .foregroundColor(.primary)
+
+                Button(action: { viewModel.copyUserCode() }) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 14))
+                }
+                .buttonStyle(.plain)
+                .help("Copy code")
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .background(Color.primary.opacity(0.05))
+            .cornerRadius(8)
+
+            // Open link button
+            Button(action: { viewModel.openVerificationURL() }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "safari")
+                    Text("Open github.com/login/device")
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
@@ -261,15 +326,22 @@ struct AuthView: View {
             .controlSize(.large)
             .padding(.horizontal, 40)
 
-            // Info text
-            Text("This will open GitHub in your browser\nto authorize the app.")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
+            // Waiting indicator
+            HStack(spacing: 8) {
+                ProgressView()
+                    .scaleEffect(0.7)
+                Text("Waiting for authorization...")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
 
-            Spacer()
+            // Cancel button
+            Button("Cancel") {
+                viewModel.cancelSignIn()
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary)
+            .font(.system(size: 12))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
     }
 }

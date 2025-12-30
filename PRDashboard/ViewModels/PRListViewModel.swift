@@ -8,6 +8,9 @@ final class PRListViewModel: ObservableObject {
     @Published var searchText: String = ""
     @Published var showingSettings: Bool = false
     @Published private(set) var authState: AuthState = .empty
+    @Published private(set) var deviceCode: DeviceCodeInfo?
+    @Published private(set) var isAuthenticating: Bool = false
+    @Published private(set) var authError: Error?
 
     private let prManager: PRManager
     private let oauthManager: GitHubOAuthManager
@@ -24,12 +27,42 @@ final class PRListViewModel: ObservableObject {
         // Bind prList from manager
         prManager.$prList
             .receive(on: DispatchQueue.main)
-            .assign(to: &$prList)
+            .sink { [weak self] prList in
+                self?.prList = prList
+            }
+            .store(in: &cancellables)
 
         // Bind auth state
         oauthManager.$authState
             .receive(on: DispatchQueue.main)
-            .assign(to: &$authState)
+            .sink { [weak self] authState in
+                self?.authState = authState
+            }
+            .store(in: &cancellables)
+
+        // Bind device code
+        oauthManager.$deviceCode
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] deviceCode in
+                self?.deviceCode = deviceCode
+            }
+            .store(in: &cancellables)
+
+        // Bind authenticating state
+        oauthManager.$isAuthenticating
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isAuthenticating in
+                self?.isAuthenticating = isAuthenticating
+            }
+            .store(in: &cancellables)
+
+        // Bind auth error
+        oauthManager.$authError
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] authError in
+                self?.authError = authError
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Computed Properties
@@ -108,6 +141,18 @@ final class PRListViewModel: ObservableObject {
 
     func signOut() {
         oauthManager.signOut()
+    }
+
+    func cancelSignIn() {
+        oauthManager.cancelSignIn()
+    }
+
+    func openVerificationURL() {
+        oauthManager.openVerificationURL()
+    }
+
+    func copyUserCode() {
+        oauthManager.copyUserCode()
     }
 
     // MARK: - Private

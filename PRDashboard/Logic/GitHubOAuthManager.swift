@@ -1,22 +1,21 @@
 import Foundation
-import AuthenticationServices
-import CommonCrypto
+import AppKit
 
 @MainActor
 class GitHubOAuthManager: NSObject, ObservableObject {
-    // OAuth App credentials - Replace YOUR_CLIENT_ID with your actual Client ID
+    // OAuth App credentials
     // Create at: https://github.com/settings/developers
-    // Callback URL: ghpr://oauth/callback
     private let clientID = "Ov23liGCAVv1nOHzVVhf"
-    private let redirectURI = "ghpr://oauth/callback"
     private let scope = "repo read:user"
 
     @Published private(set) var authState: AuthState = .empty
     @Published private(set) var isAuthenticating = false
     @Published private(set) var authError: Error?
 
-    private var codeVerifier: String?
-    private var webAuthSession: ASWebAuthenticationSession?
+    // Device Flow properties
+    @Published private(set) var deviceCode: DeviceCodeInfo?
+
+    private var pollingTask: Task<Void, Never>?
 
     override init() {
         super.init()
@@ -30,50 +29,22 @@ class GitHubOAuthManager: NSObject, ObservableObject {
 
         isAuthenticating = true
         authError = nil
+        deviceCode = nil
 
-        // Generate PKCE code verifier and challenge
-        let verifier = generateCodeVerifier()
-        let challenge = generateCodeChallenge(from: verifier)
-        codeVerifier = verifier
-
-        // Build authorization URL
-        var components = URLComponents(string: "https://github.com/login/oauth/authorize")!
-        components.queryItems = [
-            URLQueryItem(name: "client_id", value: clientID),
-            URLQueryItem(name: "redirect_uri", value: redirectURI),
-            URLQueryItem(name: "scope", value: scope),
-            URLQueryItem(name: "state", value: UUID().uuidString),
-            URLQueryItem(name: "code_challenge", value: challenge),
-            URLQueryItem(name: "code_challenge_method", value: "S256")
-        ]
-
-        guard let authURL = components.url else {
-            isAuthenticating = false
-            authError = OAuthError.invalidURL
-            return
-        }
-
-        // Use ASWebAuthenticationSession for secure OAuth
-        let session = ASWebAuthenticationSession(
-            url: authURL,
-            callbackURLScheme: "ghpr"
-        ) { [weak self] callbackURL, error in
-            Task { @MainActor in
-                await self?.handleCallback(callbackURL: callbackURL, error: error)
-            }
-        }
-
-        session.presentationContextProvider = self
-        session.prefersEphemeralWebBrowserSession = false
-        webAuthSession = session
-
-        if !session.start() {
-            isAuthenticating = false
-            authError = OAuthError.sessionStartFailed
+        Task {
+            await startDeviceFlow()
         }
     }
 
+    func cancelSignIn() {
+        pollingTask?.cancel()
+        pollingTask = nil
+        isAuthenticating = false
+        deviceCode = nil
+    }
+
     func signOut() {
+        cancelSignIn()
         KeychainHelper.deleteAuthState()
         authState = .empty
         authError = nil
@@ -90,35 +61,137 @@ class GitHubOAuthManager: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Private Methods
+    func openVerificationURL() {
+        guard let urlString = deviceCode?.verificationURI,
+              let url = URL(string: urlString) else { return }
+        NSWorkspace.shared.open(url)
+    }
 
-    private func handleCallback(callbackURL: URL?, error: Error?) async {
-        defer { isAuthenticating = false }
+    func copyUserCode() {
+        guard let code = deviceCode?.userCode else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(code, forType: .string)
+    }
 
-        if let error = error {
-            if (error as NSError).code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
-                // User cancelled, not an error
+    // MARK: - Device Flow
+
+    private func startDeviceFlow() async {
+        do {
+            // Step 1: Request device code
+            let codeInfo = try await requestDeviceCode()
+            deviceCode = codeInfo
+
+            // Step 2: Poll for token
+            pollingTask = Task {
+                await pollForToken(deviceCode: codeInfo.deviceCode, interval: codeInfo.interval)
+            }
+        } catch {
+            isAuthenticating = false
+            authError = error
+        }
+    }
+
+    private func requestDeviceCode() async throws -> DeviceCodeInfo {
+        var request = URLRequest(url: URL(string: "https://github.com/login/device/code")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: String] = [
+            "client_id": clientID,
+            "scope": scope
+        ]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw OAuthError.deviceCodeFailed
+        }
+
+        return try JSONDecoder().decode(DeviceCodeInfo.self, from: data)
+    }
+
+    private func pollForToken(deviceCode: String, interval: Int) async {
+        let pollInterval = max(interval, 5) // Minimum 5 seconds
+
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: UInt64(pollInterval) * 1_000_000_000)
+
+            if Task.isCancelled { break }
+
+            do {
+                let result = try await checkForToken(deviceCode: deviceCode)
+
+                switch result {
+                case .success(let token):
+                    let username = try await fetchUsername(token: token)
+                    let newAuthState = AuthState(accessToken: token, username: username)
+                    try KeychainHelper.saveAuthState(newAuthState)
+                    authState = newAuthState
+                    self.deviceCode = nil
+                    isAuthenticating = false
+                    return
+
+                case .pending:
+                    // Keep polling
+                    continue
+
+                case .slowDown:
+                    // Wait extra time
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    continue
+
+                case .error(let message):
+                    throw OAuthError.tokenExchangeFailed(message)
+                }
+            } catch {
+                authError = error
+                self.deviceCode = nil
+                isAuthenticating = false
                 return
             }
-            authError = error
-            return
+        }
+    }
+
+    private func checkForToken(deviceCode: String) async throws -> TokenPollResult {
+        var request = URLRequest(url: URL(string: "https://github.com/login/oauth/access_token")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: String] = [
+            "client_id": clientID,
+            "device_code": deviceCode,
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code"
+        ]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw OAuthError.tokenExchangeFailed("HTTP error")
         }
 
-        guard let callbackURL = callbackURL,
-              let code = extractCode(from: callbackURL) else {
-            authError = OAuthError.invalidCallback
-            return
+        let tokenResponse = try JSONDecoder().decode(TokenResponse.self, from: data)
+
+        if let token = tokenResponse.accessToken {
+            return .success(token)
         }
 
-        do {
-            let token = try await exchangeCodeForToken(code: code)
-            let username = try await fetchUsername(token: token)
-
-            let newAuthState = AuthState(accessToken: token, username: username)
-            try KeychainHelper.saveAuthState(newAuthState)
-            authState = newAuthState
-        } catch {
-            authError = error
+        switch tokenResponse.error {
+        case "authorization_pending":
+            return .pending
+        case "slow_down":
+            return .slowDown
+        case "expired_token":
+            return .error("Code expired. Please try again.")
+        case "access_denied":
+            return .error("Access denied by user.")
+        default:
+            return .error(tokenResponse.error ?? "Unknown error")
         }
     }
 
@@ -134,56 +207,6 @@ class GitHubOAuthManager: NSObject, ObservableObject {
         } catch {
             // Silently fail - we still have the token
         }
-    }
-
-    private func generateCodeVerifier() -> String {
-        var buffer = [UInt8](repeating: 0, count: 32)
-        _ = SecRandomCopyBytes(kSecRandomDefault, buffer.count, &buffer)
-        return Data(buffer).base64URLEncodedString()
-    }
-
-    private func generateCodeChallenge(from verifier: String) -> String {
-        let data = Data(verifier.utf8)
-        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-        data.withUnsafeBytes {
-            _ = CC_SHA256($0.baseAddress, CC_LONG(data.count), &hash)
-        }
-        return Data(hash).base64URLEncodedString()
-    }
-
-    private func extractCode(from url: URL) -> String? {
-        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        return components?.queryItems?.first(where: { $0.name == "code" })?.value
-    }
-
-    private func exchangeCodeForToken(code: String) async throws -> String {
-        var request = URLRequest(url: URL(string: "https://github.com/login/oauth/access_token")!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let body: [String: String] = [
-            "client_id": clientID,
-            "code": code,
-            "redirect_uri": redirectURI,
-            "code_verifier": codeVerifier ?? ""
-        ]
-        request.httpBody = try JSONEncoder().encode(body)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw OAuthError.tokenExchangeFailed("HTTP error")
-        }
-
-        let tokenResponse = try JSONDecoder().decode(TokenResponse.self, from: data)
-
-        guard let token = tokenResponse.accessToken else {
-            throw OAuthError.tokenExchangeFailed(tokenResponse.error ?? "Unknown error")
-        }
-
-        return token
     }
 
     private func fetchUsername(token: String) async throws -> String {
@@ -203,33 +226,42 @@ class GitHubOAuthManager: NSObject, ObservableObject {
     }
 }
 
-// MARK: - ASWebAuthenticationPresentationContextProviding
+// MARK: - Supporting Types
 
-extension GitHubOAuthManager: ASWebAuthenticationPresentationContextProviding {
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        NSApp.windows.first ?? ASPresentationAnchor()
+struct DeviceCodeInfo: Codable {
+    let deviceCode: String
+    let userCode: String
+    let verificationURI: String
+    let expiresIn: Int
+    let interval: Int
+
+    enum CodingKeys: String, CodingKey {
+        case deviceCode = "device_code"
+        case userCode = "user_code"
+        case verificationURI = "verification_uri"
+        case expiresIn = "expires_in"
+        case interval
     }
 }
 
-// MARK: - Supporting Types
+private enum TokenPollResult {
+    case success(String)
+    case pending
+    case slowDown
+    case error(String)
+}
 
 enum OAuthError: LocalizedError {
-    case invalidURL
-    case invalidCallback
-    case sessionStartFailed
+    case deviceCodeFailed
     case tokenExchangeFailed(String)
     case userFetchFailed
 
     var errorDescription: String? {
         switch self {
-        case .invalidURL:
-            return "Failed to build authorization URL"
-        case .invalidCallback:
-            return "Invalid OAuth callback URL"
-        case .sessionStartFailed:
-            return "Failed to start authentication session"
+        case .deviceCodeFailed:
+            return "Failed to get device code from GitHub"
         case .tokenExchangeFailed(let reason):
-            return "Failed to exchange code for token: \(reason)"
+            return "Failed to get access token: \(reason)"
         case .userFetchFailed:
             return "Failed to fetch user information"
         }
@@ -254,15 +286,4 @@ private struct TokenResponse: Codable {
 
 private struct GitHubUser: Codable {
     let login: String
-}
-
-// MARK: - Data Extension for Base64URL
-
-extension Data {
-    func base64URLEncodedString() -> String {
-        base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-    }
 }
