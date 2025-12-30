@@ -22,8 +22,9 @@
 		A100000D /* ReviewThread.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000D; };
 		A100000E /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000E; };
 		A100000F /* PRList.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000F; };
-		A1000010 /* ConfigurationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000010; };
 		A1000011 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000011; };
+		A1000012 /* GitHubOAuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000012; };
+		A1000013 /* DateFormatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000013; };
 		A1000020 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000020; };
 /* End PBXBuildFile section */
 
@@ -43,8 +44,9 @@
 		A200000D /* ReviewThread.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewThread.swift; sourceTree = "<group>"; };
 		A200000E /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
 		A200000F /* PRList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PRList.swift; sourceTree = "<group>"; };
-		A2000010 /* ConfigurationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigurationStore.swift; sourceTree = "<group>"; };
 		A2000011 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
+		A2000012 /* GitHubOAuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubOAuthManager.swift; sourceTree = "<group>"; };
+		A2000013 /* DateFormatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateFormatters.swift; sourceTree = "<group>"; };
 		A2000020 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A2000021 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A2000022 /* PRDashboard.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PRDashboard.entitlements; sourceTree = "<group>"; };
@@ -80,6 +82,7 @@
 				A5000005 /* Storage */,
 				A5000006 /* ViewModels */,
 				A5000007 /* Views */,
+				A5000009 /* Helpers */,
 				A2000020 /* Assets.xcassets */,
 				A2000021 /* Info.plist */,
 				A2000022 /* PRDashboard.entitlements */,
@@ -94,6 +97,7 @@
 				A2000009 /* PRManager.swift */,
 				A200000A /* GitHubAPIClient.swift */,
 				A200000B /* NotificationManager.swift */,
+				A2000012 /* GitHubOAuthManager.swift */,
 			);
 			path = Logic;
 			sourceTree = "<group>";
@@ -112,7 +116,6 @@
 		A5000005 /* Storage */ = {
 			isa = PBXGroup;
 			children = (
-				A2000010 /* ConfigurationStore.swift */,
 				A2000011 /* Keychain.swift */,
 			);
 			path = Storage;
@@ -143,6 +146,14 @@
 				A2000006 /* Badge.swift */,
 			);
 			path = Components;
+			sourceTree = "<group>";
+		};
+		A5000009 /* Helpers */ = {
+			isa = PBXGroup;
+			children = (
+				A2000013 /* DateFormatters.swift */,
+			);
+			path = Helpers;
 			sourceTree = "<group>";
 		};
 		A5000010 /* Products */ = {
@@ -237,8 +248,9 @@
 				A100000D /* ReviewThread.swift in Sources */,
 				A100000E /* Configuration.swift in Sources */,
 				A100000F /* PRList.swift in Sources */,
-				A1000010 /* ConfigurationStore.swift in Sources */,
 				A1000011 /* Keychain.swift in Sources */,
+				A1000012 /* GitHubOAuthManager.swift in Sources */,
+				A1000013 /* DateFormatters.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

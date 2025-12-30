@@ -40,8 +40,31 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             button.title = "PR"
         }
 
-        button.action = #selector(togglePopover(_:))
+        button.action = #selector(handleClick(_:))
         button.target = self
+        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+    }
+
+    private func setupMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(NSMenuItem(title: "Quit PR Dashboard", action: #selector(quitApp), keyEquivalent: "q"))
+        return menu
+    }
+
+    @objc private func quitApp() {
+        NSApplication.shared.terminate(nil)
+    }
+
+    @objc private func handleClick(_ sender: AnyObject) {
+        guard let event = NSApp.currentEvent else { return }
+
+        if event.type == .rightMouseUp {
+            statusItem.menu = setupMenu()
+            statusItem.button?.performClick(nil)
+            statusItem.menu = nil
+        } else {
+            togglePopover(sender)
+        }
     }
 
     private func setupEventMonitor() {

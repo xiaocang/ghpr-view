@@ -1,14 +1,17 @@
 import Foundation
 import Combine
 
+@MainActor
 protocol PRManagerType: AnyObject {
     func enablePolling(_ enabled: Bool)
     func refresh()
 }
 
+@MainActor
 final class PRManager: PRManagerType, ObservableObject {
     @Published private(set) var prList: PRList = .empty
     @Published private(set) var refreshState: RefreshState = .idle
+    @Published var configuration: Configuration
 
     enum RefreshState {
         case idle
@@ -18,7 +21,7 @@ final class PRManager: PRManagerType, ObservableObject {
 
     private var apiClient: GitHubAPIClient
     private let notificationManager: NotificationManager
-    private let configurationStore: ConfigurationStore
+    private let oauthManager: GitHubOAuthManager
 
     private var timer: Timer?
     private var previousPRs: [Int: PullRequest] = [:]
@@ -27,16 +30,28 @@ final class PRManager: PRManagerType, ObservableObject {
     init(
         apiClient: GitHubAPIClient,
         notificationManager: NotificationManager,
-        configurationStore: ConfigurationStore
+        oauthManager: GitHubOAuthManager
     ) {
         self.apiClient = apiClient
         self.notificationManager = notificationManager
-        self.configurationStore = configurationStore
+        self.oauthManager = oauthManager
+        self.configuration = Self.loadConfiguration()
 
-        // Update API client when token changes
-        configurationStore.$configuration
-            .sink { [weak self] config in
-                self?.apiClient.updateToken(config.githubToken)
+        setupBindings()
+    }
+
+    private func setupBindings() {
+        // Update API client when auth state changes
+        oauthManager.$authState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] authState in
+                self?.apiClient.updateToken(authState.accessToken ?? "")
+
+                // Clear data on sign out
+                if !authState.isAuthenticated {
+                    self?.prList = .empty
+                    self?.previousPRs = [:]
+                }
             }
             .store(in: &cancellables)
     }
@@ -45,12 +60,12 @@ final class PRManager: PRManagerType, ObservableObject {
         timer?.invalidate()
         timer = nil
 
-        if enabled {
+        if enabled && oauthManager.authState.isAuthenticated {
             // Immediate refresh when polling starts
             refresh()
 
             // Schedule periodic refresh
-            let interval = configurationStore.configuration.refreshInterval
+            let interval = max(configuration.refreshInterval, 15)
             timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
                 self?.refresh()
             }
@@ -58,9 +73,12 @@ final class PRManager: PRManagerType, ObservableObject {
     }
 
     func refresh() {
-        let config = configurationStore.configuration
+        guard oauthManager.authState.isAuthenticated,
+              let username = oauthManager.authState.username else {
+            return
+        }
 
-        guard config.isValid else {
+        guard configuration.isValid else {
             prList = PRList(
                 lastUpdated: Date(),
                 pullRequests: [],
@@ -80,20 +98,20 @@ final class PRManager: PRManagerType, ObservableObject {
 
         Task { @MainActor in
             do {
-                var prs = try await apiClient.fetchAllPullRequests(username: config.username)
+                var prs = try await apiClient.fetchAllPullRequests(username: username)
 
                 // Filter by configured repositories if any
-                if !config.repositories.isEmpty {
-                    prs = prs.filter { config.repositories.contains($0.repoFullName) }
+                if !configuration.repositories.isEmpty {
+                    prs = prs.filter { configuration.repositories.contains($0.repoFullName) }
                 }
 
                 // Filter drafts if disabled
-                if !config.showDrafts {
+                if !configuration.showDrafts {
                     prs = prs.filter { !$0.isDraft }
                 }
 
                 // Check for changes and notify
-                if config.notificationsEnabled {
+                if configuration.notificationsEnabled {
                     checkForChangesAndNotify(newPRs: prs)
                 }
 
@@ -120,11 +138,20 @@ final class PRManager: PRManagerType, ObservableObject {
         }
     }
 
+    func updateConfiguration(_ config: Configuration) {
+        configuration = config
+        Self.saveConfiguration(config)
+
+        // Restart polling with new interval if currently polling
+        if timer != nil {
+            enablePolling(true)
+        }
+    }
+
     private func checkForChangesAndNotify(newPRs: [PullRequest]) {
         for pr in newPRs {
             guard let previousPR = previousPRs[pr.id] else {
                 // This is a new PR we haven't seen before - skip notification
-                // (per user preference: only notify on new unresolved comments)
                 continue
             }
 
@@ -135,6 +162,24 @@ final class PRManager: PRManagerType, ObservableObject {
                 let newCount = currentUnresolved - previousUnresolved
                 notificationManager.notify(pr: pr, newUnresolvedCount: newCount)
             }
+        }
+    }
+
+    // MARK: - Configuration Persistence
+
+    private static let configurationKey = "PRDashboard.Configuration"
+
+    private static func loadConfiguration() -> Configuration {
+        guard let data = UserDefaults.standard.data(forKey: configurationKey),
+              let config = try? JSONDecoder().decode(Configuration.self, from: data) else {
+            return .default
+        }
+        return config
+    }
+
+    private static func saveConfiguration(_ config: Configuration) {
+        if let data = try? JSONEncoder().encode(config) {
+            UserDefaults.standard.set(data, forKey: configurationKey)
         }
     }
 }

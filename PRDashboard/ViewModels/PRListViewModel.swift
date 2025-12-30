@@ -2,30 +2,37 @@ import Foundation
 import Combine
 import AppKit
 
+@MainActor
 final class PRListViewModel: ObservableObject {
     @Published var prList: PRList = .empty
     @Published var searchText: String = ""
     @Published var showingSettings: Bool = false
-    @Published var configuration: Configuration = .default
+    @Published private(set) var authState: AuthState = .empty
 
     private let prManager: PRManager
-    private let configurationStore: ConfigurationStore
+    private let oauthManager: GitHubOAuthManager
     private var cancellables = Set<AnyCancellable>()
 
-    init(prManager: PRManager, configurationStore: ConfigurationStore) {
+    init(prManager: PRManager, oauthManager: GitHubOAuthManager) {
         self.prManager = prManager
-        self.configurationStore = configurationStore
+        self.oauthManager = oauthManager
 
+        setupBindings()
+    }
+
+    private func setupBindings() {
         // Bind prList from manager
         prManager.$prList
             .receive(on: DispatchQueue.main)
             .assign(to: &$prList)
 
-        // Bind configuration
-        configurationStore.$configuration
+        // Bind auth state
+        oauthManager.$authState
             .receive(on: DispatchQueue.main)
-            .assign(to: &$configuration)
+            .assign(to: &$authState)
     }
+
+    // MARK: - Computed Properties
 
     var filteredPRs: [PullRequest] {
         let prs = prList.pullRequests
@@ -67,9 +74,20 @@ final class PRListViewModel: ObservableObject {
         return formatter.localizedString(for: prList.lastUpdated, relativeTo: Date())
     }
 
-    var isConfigured: Bool {
-        configuration.isValid
+    var isLoading: Bool {
+        prList.isLoading
     }
+
+    var error: Error? {
+        prList.error
+    }
+
+    var configuration: Configuration {
+        get { prManager.configuration }
+        set { prManager.updateConfiguration(newValue) }
+    }
+
+    // MARK: - Actions
 
     func refresh() {
         prManager.refresh()
@@ -84,8 +102,12 @@ final class PRListViewModel: ObservableObject {
         NSPasteboard.general.setString(pr.url.absoluteString, forType: .string)
     }
 
-    func saveConfiguration(_ config: Configuration) throws {
-        try configurationStore.save(config)
+    func signIn() {
+        oauthManager.signIn()
+    }
+
+    func signOut() {
+        oauthManager.signOut()
     }
 
     // MARK: - Private

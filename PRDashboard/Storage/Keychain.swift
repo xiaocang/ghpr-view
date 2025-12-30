@@ -8,26 +8,86 @@ enum KeychainError: Error {
     case invalidData
 }
 
+// Type alias for backward compatibility
+typealias KeychainHelper = Keychain
+
 final class Keychain {
     static let shared = Keychain()
 
     private let service = "com.xiaocang.PRDashboard"
     private let tokenKey = "github_token"
+    private let usernameKey = "github_username"
 
     private init() {}
 
+    // MARK: - Token
+
     func saveToken(_ token: String) throws {
-        guard let data = token.data(using: .utf8) else {
+        try save(value: token, key: tokenKey)
+    }
+
+    func loadToken() throws -> String {
+        try load(key: tokenKey)
+    }
+
+    func deleteToken() throws {
+        try delete(key: tokenKey)
+    }
+
+    // MARK: - Username
+
+    func saveUsername(_ username: String) throws {
+        try save(value: username, key: usernameKey)
+    }
+
+    func loadUsername() throws -> String {
+        try load(key: usernameKey)
+    }
+
+    func deleteUsername() throws {
+        try delete(key: usernameKey)
+    }
+
+    // MARK: - AuthState
+
+    static func saveAuthState(_ state: AuthState) throws {
+        if let token = state.accessToken {
+            try shared.saveToken(token)
+        } else {
+            try? shared.deleteToken()
+        }
+        if let username = state.username {
+            try shared.saveUsername(username)
+        } else {
+            try? shared.deleteUsername()
+        }
+    }
+
+    static func loadAuthState() -> AuthState {
+        let token = try? shared.loadToken()
+        let username = try? shared.loadUsername()
+        return AuthState(accessToken: token, username: username)
+    }
+
+    static func deleteAuthState() {
+        try? shared.deleteToken()
+        try? shared.deleteUsername()
+    }
+
+    // MARK: - Private
+
+    private func save(value: String, key: String) throws {
+        guard let data = value.data(using: .utf8) else {
             throw KeychainError.invalidData
         }
 
         // Delete existing item first
-        try? deleteToken()
+        try? delete(key: key)
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: tokenKey,
+            kSecAttrAccount as String: key,
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
@@ -42,11 +102,11 @@ final class Keychain {
         }
     }
 
-    func loadToken() throws -> String {
+    private func load(key: String) throws -> String {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: tokenKey,
+            kSecAttrAccount as String: key,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
@@ -62,18 +122,18 @@ final class Keychain {
         }
 
         guard let data = result as? Data,
-              let token = String(data: data, encoding: .utf8) else {
+              let value = String(data: data, encoding: .utf8) else {
             throw KeychainError.invalidData
         }
 
-        return token
+        return value
     }
 
-    func deleteToken() throws {
+    private func delete(key: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: tokenKey
+            kSecAttrAccount as String: key
         ]
 
         let status = SecItemDelete(query as CFDictionary)

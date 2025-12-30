@@ -5,32 +5,34 @@ struct MainView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            headerView
+            if viewModel.authState.isAuthenticated {
+                // Header
+                headerView
 
-            Divider()
+                Divider()
 
-            if !viewModel.isConfigured {
-                // Show setup prompt
-                setupPromptView
-            } else if viewModel.prList.isLoading && viewModel.prList.pullRequests.isEmpty {
-                // Loading state
-                loadingView
-            } else if let error = viewModel.prList.error {
-                // Error state
-                errorView(error)
-            } else if viewModel.filteredPRs.isEmpty {
-                // Empty state
-                emptyView
+                if viewModel.prList.isLoading && viewModel.prList.pullRequests.isEmpty {
+                    // Loading state
+                    loadingView
+                } else if let error = viewModel.prList.error {
+                    // Error state
+                    errorView(error)
+                } else if viewModel.filteredPRs.isEmpty {
+                    // Empty state
+                    emptyView
+                } else {
+                    // PR list
+                    prListView
+                }
+
+                Divider()
+
+                // Footer
+                footerView
             } else {
-                // PR list
-                prListView
+                // Auth view
+                AuthView(viewModel: viewModel)
             }
-
-            Divider()
-
-            // Footer
-            footerView
         }
         .frame(width: 400, height: 500)
         .sheet(isPresented: $viewModel.showingSettings) {
@@ -136,29 +138,6 @@ struct MainView: View {
 
     // MARK: - States
 
-    private var setupPromptView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "key.fill")
-                .font(.system(size: 40))
-                .foregroundColor(.secondary)
-
-            Text("Configure GitHub Access")
-                .font(.headline)
-
-            Text("Add your GitHub token and username\nto start viewing your pull requests.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-
-            Button("Open Settings") {
-                viewModel.showingSettings = true
-            }
-            .buttonStyle(.borderedProminent)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
-    }
-
     private var loadingView: some View {
         VStack(spacing: 12) {
             ProgressView()
@@ -242,13 +221,55 @@ struct MainView: View {
     }
 }
 
-#Preview {
-    MainView(viewModel: PRListViewModel(
-        prManager: PRManager(
-            apiClient: GitHubAPIClient(token: ""),
-            notificationManager: NotificationManager(),
-            configurationStore: ConfigurationStore()
-        ),
-        configurationStore: ConfigurationStore()
-    ))
+// MARK: - Auth View
+
+struct AuthView: View {
+    @ObservedObject var viewModel: PRListViewModel
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            // App Icon
+            Image(systemName: "arrow.triangle.pull")
+                .font(.system(size: 48))
+                .foregroundColor(.accentColor)
+
+            // Title
+            VStack(spacing: 8) {
+                Text("PR Dashboard")
+                    .font(.system(size: 20, weight: .semibold))
+
+                Text("Track your GitHub pull requests\nand unresolved comments")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Spacer()
+
+            // Sign in button
+            Button(action: { viewModel.signIn() }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "person.circle")
+                    Text("Sign in with GitHub")
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .padding(.horizontal, 40)
+
+            // Info text
+            Text("This will open GitHub in your browser\nto authorize the app.")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
 }

@@ -4,16 +4,10 @@ struct SettingsView: View {
     @ObservedObject var viewModel: PRListViewModel
     @Environment(\.dismiss) private var dismiss
 
-    @State private var token: String = ""
-    @State private var username: String = ""
     @State private var refreshInterval: Double = 60
     @State private var repositories: String = ""
     @State private var showDrafts: Bool = true
     @State private var notificationsEnabled: Bool = true
-
-    @State private var isValidating: Bool = false
-    @State private var validationResult: Bool?
-    @State private var saveError: String?
 
     private let refreshIntervalOptions: [(String, Double)] = [
         ("15 seconds", 15),
@@ -31,9 +25,9 @@ struct SettingsView: View {
                     .font(.headline)
                 Spacer()
                 Button("Done") {
-                    dismiss()
+                    save()
                 }
-                .keyboardShortcut(.escape)
+                .keyboardShortcut(.return)
             }
             .padding()
 
@@ -41,38 +35,37 @@ struct SettingsView: View {
 
             // Settings form
             Form {
-                Section("GitHub Account") {
-                    SecureField("Personal Access Token", text: $token)
-                        .textFieldStyle(.roundedBorder)
-
-                    HStack {
-                        TextField("Username", text: $username)
-                            .textFieldStyle(.roundedBorder)
-
-                        Button(action: validateToken) {
-                            if isValidating {
-                                ProgressView()
-                                    .scaleEffect(0.6)
-                            } else {
-                                Text("Validate")
-                            }
-                        }
-                        .disabled(token.isEmpty || isValidating)
-                    }
-
-                    if let result = validationResult {
+                Section("Account") {
+                    if viewModel.authState.isAuthenticated {
                         HStack {
-                            Image(systemName: result ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .foregroundColor(result ? .green : .red)
-                            Text(result ? "Token is valid" : "Invalid token")
-                                .font(.caption)
-                                .foregroundColor(result ? .green : .red)
-                        }
-                    }
+                            Image(systemName: "person.circle.fill")
+                                .font(.system(size: 32))
+                                .foregroundColor(.accentColor)
 
-                    Text("Create a token at GitHub → Settings → Developer settings → Personal access tokens. Required scopes: repo, read:org")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(viewModel.authState.username ?? "Signed in")
+                                    .font(.headline)
+                                Text("Connected to GitHub")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Spacer()
+
+                            Button("Sign Out") {
+                                viewModel.signOut()
+                                dismiss()
+                            }
+                            .foregroundColor(.red)
+                        }
+                        .padding(.vertical, 4)
+                    } else {
+                        Button("Sign in with GitHub") {
+                            viewModel.signIn()
+                            dismiss()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                 }
 
                 Section("Refresh") {
@@ -87,19 +80,15 @@ struct SettingsView: View {
                     TextField("Repositories (comma-separated, leave empty for all)", text: $repositories)
                         .textFieldStyle(.roundedBorder)
 
+                    Text("Example: owner/repo1, owner/repo2")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
                     Toggle("Show draft PRs", isOn: $showDrafts)
                 }
 
                 Section("Notifications") {
                     Toggle("Enable notifications for new unresolved comments", isOn: $notificationsEnabled)
-                }
-
-                if let error = saveError {
-                    Section {
-                        Text(error)
-                            .foregroundColor(.red)
-                            .font(.caption)
-                    }
                 }
             }
             .formStyle(.grouped)
@@ -120,11 +109,10 @@ struct SettingsView: View {
                 }
                 .keyboardShortcut(.return)
                 .buttonStyle(.borderedProminent)
-                .disabled(token.isEmpty || username.isEmpty)
             }
             .padding()
         }
-        .frame(width: 450, height: 500)
+        .frame(width: 450, height: 450)
         .onAppear {
             loadCurrentSettings()
         }
@@ -132,27 +120,10 @@ struct SettingsView: View {
 
     private func loadCurrentSettings() {
         let config = viewModel.configuration
-        token = config.githubToken
-        username = config.username
         refreshInterval = config.refreshInterval
         repositories = config.repositories.joined(separator: ", ")
         showDrafts = config.showDrafts
         notificationsEnabled = config.notificationsEnabled
-    }
-
-    private func validateToken() {
-        isValidating = true
-        validationResult = nil
-
-        let client = GitHubAPIClient(token: token)
-
-        Task {
-            let result = try? await client.validateToken()
-            await MainActor.run {
-                isValidating = false
-                validationResult = result ?? false
-            }
-        }
     }
 
     private func save() {
@@ -162,31 +133,13 @@ struct SettingsView: View {
             .filter { !$0.isEmpty }
 
         let config = Configuration(
-            githubToken: token,
-            username: username,
             refreshInterval: refreshInterval,
             repositories: repos,
             showDrafts: showDrafts,
             notificationsEnabled: notificationsEnabled
         )
 
-        do {
-            try viewModel.saveConfiguration(config)
-            saveError = nil
-            dismiss()
-        } catch {
-            saveError = error.localizedDescription
-        }
+        viewModel.configuration = config
+        dismiss()
     }
-}
-
-#Preview {
-    SettingsView(viewModel: PRListViewModel(
-        prManager: PRManager(
-            apiClient: GitHubAPIClient(token: ""),
-            notificationManager: NotificationManager(),
-            configurationStore: ConfigurationStore()
-        ),
-        configurationStore: ConfigurationStore()
-    ))
 }
