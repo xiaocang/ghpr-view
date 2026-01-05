@@ -13,7 +13,7 @@ A lightweight macOS menu bar app for tracking your GitHub pull requests and revi
 - **PR Overview** - View your authored PRs and review requests in one place
 - **CI Status** - See CI check status (success/failure/pending) for each PR
 - **Unresolved Comments** - Badge shows total unresolved comment count
-- **Secure Authentication** - GitHub Device Flow (no secrets, no tokens to manage)
+- **Secure Authentication** - GitHub Device Flow or Personal Access Token (PAT)
 - **Auto-Refresh** - Configurable refresh interval (15s - 5min)
 - **Notifications** - Desktop alerts for new unresolved comments and CI status changes
 - **Search** - Filter PRs by title, repo, or author
@@ -36,10 +36,19 @@ brew install xiaocang/tap/prdashboard
 
 ## Usage
 
+### Option 1: GitHub Device Flow (Recommended)
+
 1. Click the menu bar icon to open the dashboard
 2. Click "Sign in with GitHub"
 3. Enter the displayed code at github.com/login/device
 4. Once authorized, your PRs will load automatically
+
+### Option 2: Personal Access Token (PAT)
+
+1. Create a [Personal Access Token](https://github.com/settings/tokens) with `repo` scope
+2. Click the menu bar icon to open the dashboard
+3. Click "Sign in with GitHub", then "Use Personal Access Token"
+4. Paste your token and click "Sign In"
 
 ### Controls
 
