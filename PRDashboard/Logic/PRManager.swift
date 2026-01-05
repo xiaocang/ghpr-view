@@ -69,8 +69,11 @@ final class PRManager: PRManagerType, ObservableObject {
         timer = nil
 
         if enabled && oauthManager.authState.isAuthenticated {
-            // Immediate refresh when polling starts (if enabled)
-            if configuration.refreshOnOpen {
+            // Immediate refresh when polling starts:
+            // - Always refresh on first open (when no data yet)
+            // - Otherwise, respect refreshOnOpen setting
+            let isFirstOpen = prList.pullRequests.isEmpty && prList.error == nil && !prList.isLoading
+            if isFirstOpen || configuration.refreshOnOpen {
                 refresh()
             }
 
