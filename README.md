@@ -9,10 +9,11 @@ A lightweight macOS menu bar app for tracking your GitHub pull requests and revi
 
 - **Menu Bar App** - Lives in your menu bar, no dock icon clutter
 - **PR Overview** - View your authored PRs and review requests in one place
+- **CI Status** - See CI check status (success/failure/pending) for each PR
 - **Unresolved Comments** - Badge shows total unresolved comment count
 - **Secure Authentication** - GitHub Device Flow (no secrets, no tokens to manage)
 - **Auto-Refresh** - Configurable refresh interval (15s - 5min)
-- **Notifications** - Desktop alerts for new unresolved comments
+- **Notifications** - Desktop alerts for new unresolved comments and CI status changes
 - **Search** - Filter PRs by title, repo, or author
 - **Quick Actions** - Click to open PR in browser, copy URL
 
@@ -50,6 +51,7 @@ brew install xiaocang/tap/prdashboard
 - **Refresh Interval** - How often to fetch updates (15s to 5min)
 - **Repositories** - Filter to specific repos (comma-separated `owner/repo`)
 - **Show Drafts** - Include/exclude draft PRs
+- **CI Status Exclude Filter** - Exclude status checks by keyword (e.g., "review")
 - **Notifications** - Enable/disable desktop notifications
 
 ## Requirements
