@@ -17,20 +17,31 @@ jobs:
     - name: Build
       run: xcodebuild -project PRDashboard.xcodeproj -scheme PRDashboard -configuration Release -sdk macosx -arch arm64 build
 
+    - name: Get version from tag
+      id: version
+      run: |
+        if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          echo "is_release=true" >> $GITHUB_OUTPUT
+        else
+          echo "version=dev" >> $GITHUB_OUTPUT
+          echo "is_release=false" >> $GITHUB_OUTPUT
+        fi
+
     - name: Create Release Artifact
       run: |
         cd ~/Library/Developer/Xcode/DerivedData/PRDashboard-*/Build/Products/Release
-        zip -r PRDashboard.zip PRDashboard.app
+        zip -r PRDashboard-${{ steps.version.outputs.version }}.zip PRDashboard.app
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: PRDashboard
-        path: ~/Library/Developer/Xcode/DerivedData/PRDashboard-*/Build/Products/Release/PRDashboard.zip
+        name: PRDashboard-${{ steps.version.outputs.version }}
+        path: ~/Library/Developer/Xcode/DerivedData/PRDashboard-*/Build/Products/Release/PRDashboard-${{ steps.version.outputs.version }}.zip
 
     - name: Create GitHub Release
-      if: startsWith(github.ref, 'refs/tags/v')
+      if: steps.version.outputs.is_release == 'true'
       uses: softprops/action-gh-release@v2
       with:
-        files: ~/Library/Developer/Xcode/DerivedData/PRDashboard-*/Build/Products/Release/PRDashboard.zip
+        files: ~/Library/Developer/Xcode/DerivedData/PRDashboard-*/Build/Products/Release/PRDashboard-${{ steps.version.outputs.version }}.zip
         generate_release_notes: true
