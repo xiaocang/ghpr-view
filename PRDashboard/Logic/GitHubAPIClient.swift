@@ -148,6 +148,25 @@ final class GitHubAPIClient {
                                 }
                             }
                         }
+                        commits(last: 1) {
+                            nodes {
+                                commit {
+                                    statusCheckRollup {
+                                        state
+                                        contexts(first: 100) {
+                                            nodes {
+                                                ... on CheckRun {
+                                                    conclusion
+                                                }
+                                                ... on StatusContext {
+                                                    state
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 pageInfo {
@@ -233,6 +252,53 @@ final class GitHubAPIClient {
                     )
                 } ?? []
 
+                // Extract CI status and counts from the last commit
+                let statusCheckRollup = node.commits?.nodes.first?.commit.statusCheckRollup
+                let ciStatus: CIStatus?
+                if let stateString = statusCheckRollup?.state {
+                    ciStatus = CIStatus(rawValue: stateString)
+                } else {
+                    ciStatus = nil
+                }
+
+                // Count check statuses
+                var successCount = 0
+                var failureCount = 0
+                var pendingCount = 0
+
+                if let contexts = statusCheckRollup?.contexts?.nodes {
+                    for context in contexts {
+                        // CheckRun uses conclusion, StatusContext uses state
+                        if let conclusion = context.conclusion {
+                            switch conclusion.uppercased() {
+                            case "SUCCESS":
+                                successCount += 1
+                            case "FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE":
+                                failureCount += 1
+                            case "CANCELLED", "SKIPPED", "NEUTRAL", "STALE":
+                                // Don't count cancelled/skipped/neutral in totals
+                                break
+                            default:
+                                pendingCount += 1  // null or unknown = in progress
+                            }
+                        } else if let state = context.state {
+                            switch state.uppercased() {
+                            case "SUCCESS":
+                                successCount += 1
+                            case "FAILURE", "ERROR":
+                                failureCount += 1
+                            case "PENDING", "EXPECTED":
+                                pendingCount += 1
+                            default:
+                                break
+                            }
+                        } else {
+                            // No conclusion or state means in progress
+                            pendingCount += 1
+                        }
+                    }
+                }
+
                 return PullRequest(
                     id: databaseId,
                     number: node.number,
@@ -247,7 +313,11 @@ final class GitHubAPIClient {
                     createdAt: node.createdAt,
                     updatedAt: node.updatedAt,
                     reviewThreads: reviewThreads,
-                    category: category
+                    category: category,
+                    ciStatus: ciStatus,
+                    checkSuccessCount: successCount,
+                    checkFailureCount: failureCount,
+                    checkPendingCount: pendingCount
                 )
             }
         } catch {
@@ -287,6 +357,7 @@ private struct GraphQLResponse: Decodable {
         let author: Author?
         let repository: Repository
         let reviewThreads: ReviewThreadsContainer?
+        let commits: CommitsContainer?
     }
 
     struct Author: Decodable {
@@ -325,5 +396,32 @@ private struct GraphQLResponse: Decodable {
         let author: Author?
         let body: String
         let createdAt: Date
+    }
+
+    struct CommitsContainer: Decodable {
+        let nodes: [CommitNode]
+    }
+
+    struct CommitNode: Decodable {
+        let commit: CommitInfo
+    }
+
+    struct CommitInfo: Decodable {
+        let statusCheckRollup: StatusCheckRollup?
+    }
+
+    struct StatusCheckRollup: Decodable {
+        let state: String
+        let contexts: ContextsContainer?
+    }
+
+    struct ContextsContainer: Decodable {
+        let nodes: [ContextNode]
+    }
+
+    struct ContextNode: Decodable {
+        // CheckRun uses "conclusion", StatusContext uses "state"
+        let conclusion: String?  // SUCCESS, FAILURE, NEUTRAL, CANCELLED, SKIPPED, TIMED_OUT, ACTION_REQUIRED, null (in progress)
+        let state: String?       // PENDING, SUCCESS, FAILURE, ERROR, EXPECTED
     }
 }

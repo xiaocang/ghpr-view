@@ -11,6 +11,13 @@ enum PRState: String, Codable {
     case merged = "MERGED"
 }
 
+enum CIStatus: String, Codable {
+    case success = "SUCCESS"
+    case pending = "PENDING"
+    case failure = "FAILURE"
+    case expected = "EXPECTED"
+}
+
 struct PullRequest: Identifiable, Codable, Equatable {
     let id: Int
     let number: Int
@@ -26,6 +33,14 @@ struct PullRequest: Identifiable, Codable, Equatable {
     let updatedAt: Date
     let reviewThreads: [ReviewThread]
     let category: PRCategory
+    let ciStatus: CIStatus?
+    let checkSuccessCount: Int
+    let checkFailureCount: Int
+    let checkPendingCount: Int
+
+    var checkTotalCount: Int {
+        checkSuccessCount + checkFailureCount + checkPendingCount
+    }
 
     var unresolvedCount: Int {
         reviewThreads.filter { !$0.isResolved && !$0.isOutdated }.count

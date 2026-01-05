@@ -55,6 +55,15 @@ struct PRRowView: View {
 
                     Spacer()
 
+                    if let ciStatus = pr.ciStatus {
+                        CIStatusIcon(
+                            status: ciStatus,
+                            successCount: pr.checkSuccessCount,
+                            failureCount: pr.checkFailureCount,
+                            pendingCount: pr.checkPendingCount
+                        )
+                    }
+
                     if pr.unresolvedCount > 0 {
                         Badge(count: pr.unresolvedCount)
                     }
@@ -111,7 +120,11 @@ struct PRRowView: View {
             reviewThreads: [
                 ReviewThread(id: "1", isResolved: false, isOutdated: false, path: nil, line: nil, comments: [])
             ],
-            category: .authored
+            category: .authored,
+            ciStatus: .failure,
+            checkSuccessCount: 3,
+            checkFailureCount: 2,
+            checkPendingCount: 0
         ),
         onOpen: {},
         onCopyURL: {}
