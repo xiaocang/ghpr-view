@@ -6,6 +6,7 @@ struct Configuration: Codable, Equatable {
     var showDrafts: Bool
     var notificationsEnabled: Bool
     var refreshOnOpen: Bool            // refresh immediately when popover opens
+    var ciStatusExcludeFilter: String  // keywords to exclude from CI status (e.g., "review")
 
     static var `default`: Configuration {
         Configuration(
@@ -13,7 +14,8 @@ struct Configuration: Codable, Equatable {
             repositories: [],
             showDrafts: true,
             notificationsEnabled: true,
-            refreshOnOpen: true
+            refreshOnOpen: true,
+            ciStatusExcludeFilter: "review"
         )
     }
 

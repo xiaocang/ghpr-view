@@ -167,12 +167,24 @@ final class PRManager: PRManagerType, ObservableObject {
                 continue
             }
 
+            // Check for unresolved comment changes
             let previousUnresolved = previousPR.unresolvedCount
             let currentUnresolved = pr.unresolvedCount
 
             if currentUnresolved > previousUnresolved {
                 let newCount = currentUnresolved - previousUnresolved
                 notificationManager.notify(pr: pr, newUnresolvedCount: newCount)
+            }
+
+            // Check for CI status changes
+            let previousCI = previousPR.ciStatus
+            let currentCI = pr.ciStatus
+
+            if previousCI != currentCI {
+                if let newStatus = currentCI,
+                   (newStatus == .success || newStatus == .failure) {
+                    notificationManager.notifyCIStatusChange(pr: pr, newStatus: newStatus)
+                }
             }
         }
     }

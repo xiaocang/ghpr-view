@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var repositories: String = ""
     @State private var showDrafts: Bool = true
     @State private var notificationsEnabled: Bool = true
+    @State private var ciStatusExcludeFilter: String = "review"
     @State private var showPATSwitchSheet = false
     @State private var newPATToken = ""
 
@@ -113,6 +114,13 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
 
                     Toggle("Show draft PRs", isOn: $showDrafts)
+
+                    TextField("CI status exclude filter", text: $ciStatusExcludeFilter)
+                        .textFieldStyle(.roundedBorder)
+
+                    Text("Exclude status checks containing this keyword (e.g., review)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
 
                 Section("Notifications") {
@@ -209,6 +217,7 @@ struct SettingsView: View {
         repositories = config.repositories.joined(separator: ", ")
         showDrafts = config.showDrafts
         notificationsEnabled = config.notificationsEnabled
+        ciStatusExcludeFilter = config.ciStatusExcludeFilter
     }
 
     private func save() {
@@ -222,7 +231,8 @@ struct SettingsView: View {
             repositories: repos,
             showDrafts: showDrafts,
             notificationsEnabled: notificationsEnabled,
-            refreshOnOpen: refreshOnOpen
+            refreshOnOpen: refreshOnOpen,
+            ciStatusExcludeFilter: ciStatusExcludeFilter
         )
 
         viewModel.configuration = config

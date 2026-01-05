@@ -159,6 +159,7 @@ final class GitHubAPIClient {
                                                     conclusion
                                                 }
                                                 ... on StatusContext {
+                                                    context
                                                     state
                                                 }
                                             }
@@ -254,12 +255,6 @@ final class GitHubAPIClient {
 
                 // Extract CI status and counts from the last commit
                 let statusCheckRollup = node.commits?.nodes.first?.commit.statusCheckRollup
-                let ciStatus: CIStatus?
-                if let stateString = statusCheckRollup?.state {
-                    ciStatus = CIStatus(rawValue: stateString)
-                } else {
-                    ciStatus = nil
-                }
 
                 // Count check statuses
                 var successCount = 0
@@ -282,6 +277,13 @@ final class GitHubAPIClient {
                                 pendingCount += 1  // null or unknown = in progress
                             }
                         } else if let state = context.state {
+                            // Skip status contexts matching exclude filter (only show CI checks)
+                            let excludeFilter = Self.loadCIStatusExcludeFilter()
+                            if !excludeFilter.isEmpty,
+                               let contextName = context.context,
+                               contextName.lowercased().contains(excludeFilter.lowercased()) {
+                                continue
+                            }
                             switch state.uppercased() {
                             case "SUCCESS":
                                 successCount += 1
@@ -297,6 +299,21 @@ final class GitHubAPIClient {
                             pendingCount += 1
                         }
                     }
+                }
+
+                // Derive CI status from our counts (not GitHub's rollup which may include excluded checks)
+                let ciStatus: CIStatus?
+                if failureCount > 0 {
+                    ciStatus = .failure
+                } else if pendingCount > 0 {
+                    ciStatus = .pending
+                } else if successCount > 0 {
+                    ciStatus = .success
+                } else if statusCheckRollup != nil {
+                    // No checks we count, but rollup exists - use expected
+                    ciStatus = .expected
+                } else {
+                    ciStatus = nil
                 }
 
                 return PullRequest(
@@ -323,6 +340,18 @@ final class GitHubAPIClient {
         } catch {
             throw APIError.decoding(error)
         }
+    }
+
+    // MARK: - Configuration
+
+    private static let configurationKey = "PRDashboard.Configuration"
+
+    private static func loadCIStatusExcludeFilter() -> String {
+        guard let data = UserDefaults.standard.data(forKey: configurationKey),
+              let config = try? JSONDecoder().decode(Configuration.self, from: data) else {
+            return Configuration.default.ciStatusExcludeFilter
+        }
+        return config.ciStatusExcludeFilter
     }
 }
 
@@ -420,8 +449,9 @@ private struct GraphQLResponse: Decodable {
     }
 
     struct ContextNode: Decodable {
-        // CheckRun uses "conclusion", StatusContext uses "state"
+        // CheckRun uses "conclusion", StatusContext uses "state" and "context"
         let conclusion: String?  // SUCCESS, FAILURE, NEUTRAL, CANCELLED, SKIPPED, TIMED_OUT, ACTION_REQUIRED, null (in progress)
         let state: String?       // PENDING, SUCCESS, FAILURE, ERROR, EXPECTED
+        let context: String?     // StatusContext name (e.g., "ci/build", "code-review/reviewable")
     }
 }

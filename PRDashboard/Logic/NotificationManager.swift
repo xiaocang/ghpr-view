@@ -61,6 +61,47 @@ final class NotificationManager: NSObject, ObservableObject {
         }
     }
 
+    func notifyCIStatusChange(pr: PullRequest, newStatus: CIStatus) {
+        guard isAuthorized else { return }
+        guard !mutedPRIds.contains(pr.id) else { return }
+
+        // Throttle notifications
+        if let lastTime = lastNotificationTime[pr.id],
+           Date().timeIntervalSince(lastTime) < notificationThrottleInterval {
+            return
+        }
+
+        lastNotificationTime[pr.id] = Date()
+
+        let content = UNMutableNotificationContent()
+        content.title = "\(pr.repoFullName) #\(pr.number)"
+
+        switch newStatus {
+        case .success:
+            content.body = "All CI checks passed on \"\(pr.title)\""
+        case .failure:
+            content.body = "CI checks failed on \"\(pr.title)\""
+        default:
+            return  // Don't notify for pending/expected
+        }
+
+        content.sound = .default
+        content.userInfo = ["pr_url": pr.url.absoluteString, "pr_id": pr.id]
+        content.categoryIdentifier = "PR_NOTIFICATION"
+
+        let request = UNNotificationRequest(
+            identifier: "ci-\(pr.id)-\(Date().timeIntervalSince1970)",
+            content: content,
+            trigger: nil
+        )
+
+        notificationCenter.add(request) { error in
+            if let error = error {
+                print("Failed to schedule CI notification: \(error.localizedDescription)")
+            }
+        }
+    }
+
     func mutePR(_ prId: Int) {
         mutedPRIds.insert(prId)
         saveMutedPRs()
