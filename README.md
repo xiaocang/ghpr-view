@@ -60,7 +60,7 @@ brew install xiaocang/tap/prdashboard
 ### Settings
 
 - **Refresh Interval** - How often to fetch updates (15s to 5min)
-- **Repositories** - Filter to specific repos (comma-separated `owner/repo`)
+- **Repositories** - Filter to specific repos, case-insensitive (e.g., `owner/repo` or `owner/` for all repos)
 - **Show Drafts** - Include/exclude draft PRs
 - **CI Status Exclude Filter** - Exclude status checks by keyword (e.g., "review")
 - **Notifications** - Enable/disable desktop notifications

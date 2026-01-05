@@ -112,9 +112,21 @@ final class PRManager: PRManagerType, ObservableObject {
             do {
                 var prs = try await apiClient.fetchAllPullRequests(username: username)
 
-                // Filter by configured repositories if any
+                // Filter by configured repositories if any (case-insensitive, supports "org/" prefix match)
                 if !configuration.repositories.isEmpty {
-                    prs = prs.filter { configuration.repositories.contains($0.repoFullName) }
+                    prs = prs.filter { pr in
+                        let repoName = pr.repoFullName.lowercased()
+                        return configuration.repositories.contains { filter in
+                            let filterLower = filter.lowercased()
+                            if filterLower.hasSuffix("/") {
+                                // Org/author prefix match (e.g., "xiaocang/" matches all repos under xiaocang)
+                                return repoName.hasPrefix(filterLower)
+                            } else {
+                                // Full "owner/repo" match
+                                return repoName == filterLower
+                            }
+                        }
+                    }
                 }
 
                 // Filter drafts if disabled
