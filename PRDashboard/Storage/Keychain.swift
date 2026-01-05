@@ -15,89 +15,62 @@ final class Keychain {
     static let shared = Keychain()
 
     private let service = "com.xiaocang.PRDashboard"
-    private let tokenKey = "github_token"
-    private let usernameKey = "github_username"
-    private let authMethodKey = "github_auth_method"
+    private let authStateKey = "github_auth_state"
+
+    // Legacy keys for migration
+    private let legacyTokenKey = "github_token"
+    private let legacyUsernameKey = "github_username"
+    private let legacyAuthMethodKey = "github_auth_method"
 
     private init() {}
 
-    // MARK: - Token
+    // MARK: - Legacy methods (kept for migration only)
 
-    func saveToken(_ token: String) throws {
-        try save(value: token, key: tokenKey)
-    }
-
-    func loadToken() throws -> String {
-        try load(key: tokenKey)
-    }
-
-    func deleteToken() throws {
-        try delete(key: tokenKey)
-    }
-
-    // MARK: - Username
-
-    func saveUsername(_ username: String) throws {
-        try save(value: username, key: usernameKey)
-    }
-
-    func loadUsername() throws -> String {
-        try load(key: usernameKey)
-    }
-
-    func deleteUsername() throws {
-        try delete(key: usernameKey)
-    }
-
-    // MARK: - Auth Method
-
-    func saveAuthMethod(_ method: AuthMethod) throws {
-        try save(value: method.rawValue, key: authMethodKey)
-    }
-
-    func loadAuthMethod() throws -> AuthMethod {
-        let value = try load(key: authMethodKey)
-        guard let method = AuthMethod(rawValue: value) else {
-            throw KeychainError.invalidData
-        }
-        return method
-    }
-
-    func deleteAuthMethod() throws {
-        try delete(key: authMethodKey)
-    }
-
-    // MARK: - AuthState
+    // MARK: - AuthState (consolidated as single JSON item)
 
     static func saveAuthState(_ state: AuthState) throws {
-        if let token = state.accessToken {
-            try shared.saveToken(token)
-        } else {
-            try? shared.deleteToken()
+        let data = try JSONEncoder().encode(state)
+        guard let json = String(data: data, encoding: .utf8) else {
+            throw KeychainError.invalidData
         }
-        if let username = state.username {
-            try shared.saveUsername(username)
-        } else {
-            try? shared.deleteUsername()
-        }
-        if let method = state.authMethod {
-            try shared.saveAuthMethod(method)
-        } else {
-            try? shared.deleteAuthMethod()
-        }
+        try shared.save(value: json, key: shared.authStateKey)
     }
 
     static func loadAuthState() -> AuthState {
-        let token = try? shared.loadToken()
-        let username = try? shared.loadUsername()
-        let authMethod = try? shared.loadAuthMethod()
-        return AuthState(accessToken: token, username: username, authMethod: authMethod)
+        // Try loading from new consolidated key first
+        if let json = try? shared.load(key: shared.authStateKey),
+           let data = json.data(using: .utf8),
+           let state = try? JSONDecoder().decode(AuthState.self, from: data) {
+            return state
+        }
+
+        // Migration: try loading from legacy separate keys
+        let token = try? shared.load(key: shared.legacyTokenKey)
+        let username = try? shared.load(key: shared.legacyUsernameKey)
+        var authMethod: AuthMethod?
+        if let methodRaw = try? shared.load(key: shared.legacyAuthMethodKey) {
+            authMethod = AuthMethod(rawValue: methodRaw)
+        }
+
+        let state = AuthState(accessToken: token, username: username, authMethod: authMethod)
+
+        // If we found legacy data, migrate to new format and clean up
+        if token != nil {
+            try? saveAuthState(state)
+            try? shared.delete(key: shared.legacyTokenKey)
+            try? shared.delete(key: shared.legacyUsernameKey)
+            try? shared.delete(key: shared.legacyAuthMethodKey)
+        }
+
+        return state
     }
 
     static func deleteAuthState() {
-        try? shared.deleteToken()
-        try? shared.deleteUsername()
-        try? shared.deleteAuthMethod()
+        try? shared.delete(key: shared.authStateKey)
+        // Also clean up any legacy keys
+        try? shared.delete(key: shared.legacyTokenKey)
+        try? shared.delete(key: shared.legacyUsernameKey)
+        try? shared.delete(key: shared.legacyAuthMethodKey)
     }
 
     // MARK: - Private

@@ -69,8 +69,10 @@ final class PRManager: PRManagerType, ObservableObject {
         timer = nil
 
         if enabled && oauthManager.authState.isAuthenticated {
-            // Immediate refresh when polling starts
-            refresh()
+            // Immediate refresh when polling starts (if enabled)
+            if configuration.refreshOnOpen {
+                refresh()
+            }
 
             // Schedule periodic refresh
             let interval = max(configuration.refreshInterval, 15)

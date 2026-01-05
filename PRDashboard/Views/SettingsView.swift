@@ -5,6 +5,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var refreshInterval: Double = 60
+    @State private var refreshOnOpen: Bool = true
     @State private var repositories: String = ""
     @State private var showDrafts: Bool = true
     @State private var notificationsEnabled: Bool = true
@@ -99,6 +100,8 @@ struct SettingsView: View {
                             Text(option.0).tag(option.1)
                         }
                     }
+
+                    Toggle("Refresh when opened", isOn: $refreshOnOpen)
                 }
 
                 Section("Filters") {
@@ -202,6 +205,7 @@ struct SettingsView: View {
     private func loadCurrentSettings() {
         let config = viewModel.configuration
         refreshInterval = config.refreshInterval
+        refreshOnOpen = config.refreshOnOpen
         repositories = config.repositories.joined(separator: ", ")
         showDrafts = config.showDrafts
         notificationsEnabled = config.notificationsEnabled
@@ -217,7 +221,8 @@ struct SettingsView: View {
             refreshInterval: refreshInterval,
             repositories: repos,
             showDrafts: showDrafts,
-            notificationsEnabled: notificationsEnabled
+            notificationsEnabled: notificationsEnabled,
+            refreshOnOpen: refreshOnOpen
         )
 
         viewModel.configuration = config

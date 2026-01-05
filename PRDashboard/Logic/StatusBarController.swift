@@ -47,7 +47,9 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
     private func setupMenu() -> NSMenu {
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Quit PR Dashboard", action: #selector(quitApp), keyEquivalent: "q"))
+        let quitItem = NSMenuItem(title: "Quit PR Dashboard", action: #selector(quitApp), keyEquivalent: "q")
+        quitItem.target = self
+        menu.addItem(quitItem)
         return menu
     }
 

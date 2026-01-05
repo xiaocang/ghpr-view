@@ -5,13 +5,15 @@ struct Configuration: Codable, Equatable {
     var repositories: [String]         // ["owner/repo", ...] - empty means all
     var showDrafts: Bool
     var notificationsEnabled: Bool
+    var refreshOnOpen: Bool            // refresh immediately when popover opens
 
     static var `default`: Configuration {
         Configuration(
             refreshInterval: 60,
             repositories: [],
             showDrafts: true,
-            notificationsEnabled: true
+            notificationsEnabled: true,
+            refreshOnOpen: true
         )
     }
 
