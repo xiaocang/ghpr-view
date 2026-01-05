@@ -10,6 +10,8 @@ final class PRListViewModel: ObservableObject {
     @Published private(set) var deviceCode: DeviceCodeInfo?
     @Published private(set) var isAuthenticating: Bool = false
     @Published private(set) var authError: Error?
+    @Published private(set) var isValidatingPAT: Bool = false
+    @Published private(set) var patError: Error?
 
     private let prManager: PRManager
     private let oauthManager: GitHubOAuthManager
@@ -62,6 +64,22 @@ final class PRListViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] authError in
                 self?.authError = authError
+            }
+            .store(in: &cancellables)
+
+        // Bind PAT validating state
+        oauthManager.$isValidatingPAT
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isValidating in
+                self?.isValidatingPAT = isValidating
+            }
+            .store(in: &cancellables)
+
+        // Bind PAT error
+        oauthManager.$patError
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] error in
+                self?.patError = error
             }
             .store(in: &cancellables)
     }
@@ -158,6 +176,16 @@ final class PRListViewModel: ObservableObject {
 
     func copyUserCode() {
         oauthManager.copyUserCode()
+    }
+
+    func signInWithPAT(_ token: String) {
+        Task {
+            await oauthManager.signInWithPAT(token)
+        }
+    }
+
+    func clearPATError() {
+        oauthManager.clearPATError()
     }
 
     // MARK: - Private

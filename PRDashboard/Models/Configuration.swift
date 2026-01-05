@@ -31,16 +31,23 @@ enum ConfigurationError: LocalizedError {
     }
 }
 
+// Authentication method
+enum AuthMethod: String, Codable {
+    case oauth
+    case pat  // Personal Access Token
+}
+
 // OAuth tokens stored separately in Keychain
 struct AuthState: Codable, Equatable {
     var accessToken: String?
     var username: String?
+    var authMethod: AuthMethod?
 
     var isAuthenticated: Bool {
         accessToken != nil
     }
 
     static var empty: AuthState {
-        AuthState(accessToken: nil, username: nil)
+        AuthState(accessToken: nil, username: nil, authMethod: nil)
     }
 }

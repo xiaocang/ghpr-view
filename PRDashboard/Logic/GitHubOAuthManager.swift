@@ -15,6 +15,10 @@ class GitHubOAuthManager: NSObject, ObservableObject {
     // Device Flow properties
     @Published private(set) var deviceCode: DeviceCodeInfo?
 
+    // PAT properties
+    @Published private(set) var isValidatingPAT = false
+    @Published private(set) var patError: Error?
+
     private var pollingTask: Task<Void, Never>?
 
     override init() {
@@ -48,6 +52,87 @@ class GitHubOAuthManager: NSObject, ObservableObject {
         KeychainHelper.deleteAuthState()
         authState = .empty
         authError = nil
+        patError = nil
+    }
+
+    // MARK: - PAT Authentication
+
+    func signInWithPAT(_ token: String) async {
+        let cleanToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !cleanToken.isEmpty else {
+            patError = PATError.emptyToken
+            return
+        }
+
+        isValidatingPAT = true
+        patError = nil
+
+        do {
+            // Validate token and check scopes
+            let (isValid, scopes) = try await validatePATWithScopes(token: cleanToken)
+
+            guard isValid else {
+                throw PATError.invalidToken
+            }
+
+            // Check required scopes
+            let requiredScopes = ["repo", "read:user"]
+            let missingScopes = requiredScopes.filter { required in
+                !scopes.contains { $0 == required || $0.hasPrefix("\(required):") }
+            }
+
+            if !missingScopes.isEmpty {
+                throw PATError.insufficientScopes(missing: missingScopes)
+            }
+
+            // Fetch username
+            let username = try await fetchUsername(token: cleanToken)
+
+            // Save auth state
+            let newAuthState = AuthState(
+                accessToken: cleanToken,
+                username: username,
+                authMethod: .pat
+            )
+            try KeychainHelper.saveAuthState(newAuthState)
+            authState = newAuthState
+
+        } catch let error as PATError {
+            patError = error
+        } catch {
+            patError = PATError.networkError(error)
+        }
+
+        isValidatingPAT = false
+    }
+
+    func clearPATError() {
+        patError = nil
+    }
+
+    private func validatePATWithScopes(token: String) async throws -> (Bool, [String]) {
+        var request = URLRequest(url: URL(string: "https://api.github.com/user")!)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            return (false, [])
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            return (false, [])
+        }
+
+        // Parse X-OAuth-Scopes header for scope checking
+        let scopesHeader = httpResponse.value(forHTTPHeaderField: "X-OAuth-Scopes") ?? ""
+        let scopes = scopesHeader.split(separator: ",").map {
+            $0.trimmingCharacters(in: .whitespaces)
+        }
+
+        return (true, scopes)
     }
 
     func loadSavedAuth() {
@@ -127,7 +212,7 @@ class GitHubOAuthManager: NSObject, ObservableObject {
                 switch result {
                 case .success(let token):
                     let username = try await fetchUsername(token: token)
-                    let newAuthState = AuthState(accessToken: token, username: username)
+                    let newAuthState = AuthState(accessToken: token, username: username, authMethod: .oauth)
                     try KeychainHelper.saveAuthState(newAuthState)
                     authState = newAuthState
                     self.deviceCode = nil
@@ -264,6 +349,26 @@ enum OAuthError: LocalizedError {
             return "Failed to get access token: \(reason)"
         case .userFetchFailed:
             return "Failed to fetch user information"
+        }
+    }
+}
+
+enum PATError: LocalizedError {
+    case emptyToken
+    case invalidToken
+    case insufficientScopes(missing: [String])
+    case networkError(Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .emptyToken:
+            return "Please enter a Personal Access Token"
+        case .invalidToken:
+            return "The token is invalid or expired"
+        case .insufficientScopes(let missing):
+            return "Token missing required scopes: \(missing.joined(separator: ", "))"
+        case .networkError(let error):
+            return "Network error: \(error.localizedDescription)"
         }
     }
 }

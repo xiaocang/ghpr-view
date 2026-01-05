@@ -222,6 +222,8 @@ struct MainView: View {
 
 struct AuthView: View {
     @ObservedObject var viewModel: PRListViewModel
+    @State private var showPATInput = false
+    @State private var patToken = ""
 
     var body: some View {
         VStack(spacing: 24) {
@@ -246,32 +248,33 @@ struct AuthView: View {
             Spacer()
 
             if let deviceCode = viewModel.deviceCode {
-                // Device code view
+                // Device code view (existing OAuth flow)
                 deviceCodeView(deviceCode)
-            } else {
-                // Sign in button
-                Button(action: { viewModel.signIn() }) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "person.circle")
-                        Text("Sign in with GitHub")
+            } else if showPATInput {
+                // PAT input view
+                PATInputView(
+                    token: $patToken,
+                    isValidating: viewModel.isValidatingPAT,
+                    error: viewModel.patError,
+                    onSubmit: {
+                        viewModel.signInWithPAT(patToken)
+                    },
+                    onCancel: {
+                        showPATInput = false
+                        patToken = ""
+                        viewModel.clearPATError()
+                    },
+                    onClearError: {
+                        viewModel.clearPATError()
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .padding(.horizontal, 40)
-                .disabled(viewModel.isAuthenticating)
-
-                // Info text
-                Text("Uses GitHub Device Flow for secure authentication")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
+                )
+            } else {
+                // Auth method selection
+                authMethodSelection
             }
 
-            // Error display
-            if let error = viewModel.authError {
+            // General error display (for OAuth errors)
+            if !showPATInput, let error = viewModel.authError {
                 Text(error.localizedDescription)
                     .font(.system(size: 12))
                     .foregroundColor(.red)
@@ -283,6 +286,64 @@ struct AuthView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+        .onChange(of: viewModel.authState.isAuthenticated) { isAuthenticated in
+            if isAuthenticated {
+                // Clear PAT input on successful auth
+                showPATInput = false
+                patToken = ""
+            }
+        }
+    }
+
+    private var authMethodSelection: some View {
+        VStack(spacing: 12) {
+            // OAuth button (primary)
+            Button(action: { viewModel.signIn() }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "person.circle")
+                    Text("Sign in with GitHub")
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .padding(.horizontal, 40)
+            .disabled(viewModel.isAuthenticating)
+
+            // Divider with "or"
+            HStack {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.3))
+                    .frame(height: 1)
+                Text("or")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.3))
+                    .frame(height: 1)
+            }
+            .padding(.horizontal, 60)
+
+            // PAT button (secondary)
+            Button(action: { showPATInput = true }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "key")
+                    Text("Use Personal Access Token")
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .padding(.horizontal, 40)
+
+            // Info text
+            Text("OAuth is recommended for better security")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
     }
 
     private func deviceCodeView(_ deviceCode: DeviceCodeInfo) -> some View {

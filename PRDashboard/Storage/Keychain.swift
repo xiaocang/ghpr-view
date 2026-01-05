@@ -17,6 +17,7 @@ final class Keychain {
     private let service = "com.xiaocang.PRDashboard"
     private let tokenKey = "github_token"
     private let usernameKey = "github_username"
+    private let authMethodKey = "github_auth_method"
 
     private init() {}
 
@@ -48,6 +49,24 @@ final class Keychain {
         try delete(key: usernameKey)
     }
 
+    // MARK: - Auth Method
+
+    func saveAuthMethod(_ method: AuthMethod) throws {
+        try save(value: method.rawValue, key: authMethodKey)
+    }
+
+    func loadAuthMethod() throws -> AuthMethod {
+        let value = try load(key: authMethodKey)
+        guard let method = AuthMethod(rawValue: value) else {
+            throw KeychainError.invalidData
+        }
+        return method
+    }
+
+    func deleteAuthMethod() throws {
+        try delete(key: authMethodKey)
+    }
+
     // MARK: - AuthState
 
     static func saveAuthState(_ state: AuthState) throws {
@@ -61,17 +80,24 @@ final class Keychain {
         } else {
             try? shared.deleteUsername()
         }
+        if let method = state.authMethod {
+            try shared.saveAuthMethod(method)
+        } else {
+            try? shared.deleteAuthMethod()
+        }
     }
 
     static func loadAuthState() -> AuthState {
         let token = try? shared.loadToken()
         let username = try? shared.loadUsername()
-        return AuthState(accessToken: token, username: username)
+        let authMethod = try? shared.loadAuthMethod()
+        return AuthState(accessToken: token, username: username, authMethod: authMethod)
     }
 
     static func deleteAuthState() {
         try? shared.deleteToken()
         try? shared.deleteUsername()
+        try? shared.deleteAuthMethod()
     }
 
     // MARK: - Private
