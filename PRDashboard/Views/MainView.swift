@@ -35,9 +35,6 @@ struct MainView: View {
             }
         }
         .frame(width: 400, height: 500)
-        .sheet(isPresented: $viewModel.showingSettings) {
-            SettingsView(viewModel: viewModel)
-        }
     }
 
     // MARK: - Header
@@ -73,7 +70,7 @@ struct MainView: View {
             .disabled(viewModel.prList.isLoading)
 
             // Settings button
-            Button(action: { viewModel.showingSettings = true }) {
+            Button(action: { viewModel.showSettings() }) {
                 Image(systemName: "gear")
             }
             .buttonStyle(.plain)

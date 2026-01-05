@@ -7,6 +7,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var oauthManager: GitHubOAuthManager?
     var prManager: PRManager?
     var notificationManager: NotificationManager?
+    var settingsWindow: NSWindow?
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -29,6 +30,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 5. Create view model
         let viewModel = PRListViewModel(prManager: prManager!, oauthManager: oauthManager!)
+
+        // Wire up settings window callback
+        viewModel.openSettings = { [weak self] in
+            self?.openSettingsWindow(viewModel: viewModel)
+        }
 
         // 6. Create main view
         let mainView = MainView(viewModel: viewModel)
@@ -66,5 +72,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
             .store(in: &cancellables)
+    }
+
+    private func openSettingsWindow(viewModel: PRListViewModel) {
+        if settingsWindow == nil {
+            let settingsView = SettingsView(viewModel: viewModel)
+            let hostingController = NSHostingController(rootView: settingsView)
+
+            let window = NSWindow(contentViewController: hostingController)
+            window.title = "Settings"
+            window.styleMask = [.titled, .closable]
+            window.setContentSize(NSSize(width: 450, height: 450))
+            window.center()
+            settingsWindow = window
+        }
+
+        settingsWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }

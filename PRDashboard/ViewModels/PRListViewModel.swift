@@ -6,7 +6,6 @@ import AppKit
 final class PRListViewModel: ObservableObject {
     @Published var prList: PRList = .empty
     @Published var searchText: String = ""
-    @Published var showingSettings: Bool = false
     @Published private(set) var authState: AuthState = .empty
     @Published private(set) var deviceCode: DeviceCodeInfo?
     @Published private(set) var isAuthenticating: Bool = false
@@ -15,6 +14,8 @@ final class PRListViewModel: ObservableObject {
     private let prManager: PRManager
     private let oauthManager: GitHubOAuthManager
     private var cancellables = Set<AnyCancellable>()
+
+    var openSettings: (() -> Void)?
 
     init(prManager: PRManager, oauthManager: GitHubOAuthManager) {
         self.prManager = prManager
@@ -124,6 +125,10 @@ final class PRListViewModel: ObservableObject {
 
     func refresh() {
         prManager.refresh()
+    }
+
+    func showSettings() {
+        openSettings?()
     }
 
     func openPR(_ pr: PullRequest) {
