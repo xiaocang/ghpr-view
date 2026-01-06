@@ -81,6 +81,12 @@ clean-all: clean ## Clean everything including Xcode caches
 
 ## Development targets
 
+dev: ## Build with local signing (requires Apple ID in Xcode)
+	./dev.sh
+
+dev-run: ## Build with local signing and run
+	./dev.sh --run
+
 open: ## Open project in Xcode
 	open $(XCODE_PROJECT)
 

@@ -7,30 +7,30 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A1000001 /* PRDashboardApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001; };
-		A1000002 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000002; };
-		A1000003 /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000003; };
-		A1000004 /* PRRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000004; };
-		A1000005 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000005; };
-		A1000006 /* Badge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000006; };
-		A1000030 /* PATInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000030; };
-		A1000031 /* CIStatusIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000031; };
-		A1000007 /* PRListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000007; };
-		A1000008 /* StatusBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000008; };
-		A1000009 /* PRManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000009; };
-		A100000A /* GitHubAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000A; };
-		A100000B /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000B; };
-		A100000C /* PullRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000C; };
-		A100000D /* ReviewThread.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000D; };
-		A100000E /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000E; };
-		A100000F /* PRList.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000F; };
-		A1000011 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000011; };
-		A1000012 /* GitHubOAuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000012; };
-		A1000013 /* DateFormatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000013; };
-		A1000040 /* PRCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000040; };
-		A1000041 /* AvatarCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000041; };
-		A1000042 /* CachedAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000042; };
-		A1000020 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000020; };
+		A1000001 /* PRDashboardApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001 /* PRDashboardApp.swift */; };
+		A1000002 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000002 /* AppDelegate.swift */; };
+		A1000003 /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000003 /* MainView.swift */; };
+		A1000004 /* PRRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000004 /* PRRowView.swift */; };
+		A1000005 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000005 /* SettingsView.swift */; };
+		A1000006 /* Badge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000006 /* Badge.swift */; };
+		A1000007 /* PRListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000007 /* PRListViewModel.swift */; };
+		A1000008 /* StatusBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000008 /* StatusBarController.swift */; };
+		A1000009 /* PRManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000009 /* PRManager.swift */; };
+		A100000A /* GitHubAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000A /* GitHubAPIClient.swift */; };
+		A100000B /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000B /* NotificationManager.swift */; };
+		A100000C /* PullRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000C /* PullRequest.swift */; };
+		A100000D /* ReviewThread.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000D /* ReviewThread.swift */; };
+		A100000E /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000E /* Configuration.swift */; };
+		A100000F /* PRList.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000F /* PRList.swift */; };
+		A1000011 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000011 /* Keychain.swift */; };
+		A1000012 /* GitHubOAuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000012 /* GitHubOAuthManager.swift */; };
+		A1000013 /* DateFormatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000013 /* DateFormatters.swift */; };
+		A1000020 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000020 /* Assets.xcassets */; };
+		A1000030 /* PATInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000030 /* PATInputView.swift */; };
+		A1000031 /* CIStatusIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000031 /* CIStatusIcon.swift */; };
+		A1000040 /* PRCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000040 /* PRCache.swift */; };
+		A1000041 /* AvatarCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000041 /* AvatarCache.swift */; };
+		A1000042 /* CachedAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000042 /* CachedAvatarView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,8 +40,6 @@
 		A2000004 /* PRRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PRRowView.swift; sourceTree = "<group>"; };
 		A2000005 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A2000006 /* Badge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Badge.swift; sourceTree = "<group>"; };
-		A2000030 /* PATInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PATInputView.swift; sourceTree = "<group>"; };
-		A2000031 /* CIStatusIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CIStatusIcon.swift; sourceTree = "<group>"; };
 		A2000007 /* PRListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PRListViewModel.swift; sourceTree = "<group>"; };
 		A2000008 /* StatusBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarController.swift; sourceTree = "<group>"; };
 		A2000009 /* PRManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PRManager.swift; sourceTree = "<group>"; };
@@ -54,12 +52,14 @@
 		A2000011 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		A2000012 /* GitHubOAuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubOAuthManager.swift; sourceTree = "<group>"; };
 		A2000013 /* DateFormatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateFormatters.swift; sourceTree = "<group>"; };
-		A2000040 /* PRCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PRCache.swift; sourceTree = "<group>"; };
-		A2000041 /* AvatarCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarCache.swift; sourceTree = "<group>"; };
-		A2000042 /* CachedAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedAvatarView.swift; sourceTree = "<group>"; };
 		A2000020 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A2000021 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A2000022 /* PRDashboard.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PRDashboard.entitlements; sourceTree = "<group>"; };
+		A2000030 /* PATInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PATInputView.swift; sourceTree = "<group>"; };
+		A2000031 /* CIStatusIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CIStatusIcon.swift; sourceTree = "<group>"; };
+		A2000040 /* PRCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PRCache.swift; sourceTree = "<group>"; };
+		A2000041 /* AvatarCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarCache.swift; sourceTree = "<group>"; };
+		A2000042 /* CachedAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedAvatarView.swift; sourceTree = "<group>"; };
 		A3000001 /* PRDashboard.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PRDashboard.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
