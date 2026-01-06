@@ -10,15 +10,18 @@ struct SettingsView: View {
     @State private var showDrafts: Bool = true
     @State private var notificationsEnabled: Bool = true
     @State private var ciStatusExcludeFilter: String = "review"
+    @State private var pausePollingInLowPowerMode: Bool = true
+    @State private var pausePollingOnExpensiveNetwork: Bool = true
     @State private var showPATSwitchSheet = false
     @State private var newPATToken = ""
 
     private let refreshIntervalOptions: [(String, Double)] = [
-        ("15 seconds", 15),
-        ("30 seconds", 30),
         ("1 minute", 60),
         ("2 minutes", 120),
-        ("5 minutes", 300)
+        ("5 minutes", 300),
+        ("10 minutes", 600),
+        ("15 minutes", 900),
+        ("30 minutes", 1800)
     ]
 
     var body: some View {
@@ -126,6 +129,11 @@ struct SettingsView: View {
                 Section("Notifications") {
                     Toggle("Enable notifications for new unresolved comments", isOn: $notificationsEnabled)
                 }
+
+                Section("Power & Network") {
+                    Toggle("Pause background refresh in Low Power Mode", isOn: $pausePollingInLowPowerMode)
+                    Toggle("Pause background refresh on cellular/hotspot", isOn: $pausePollingOnExpensiveNetwork)
+                }
             }
             .formStyle(.grouped)
 
@@ -218,6 +226,8 @@ struct SettingsView: View {
         showDrafts = config.showDrafts
         notificationsEnabled = config.notificationsEnabled
         ciStatusExcludeFilter = config.ciStatusExcludeFilter
+        pausePollingInLowPowerMode = config.pausePollingInLowPowerMode
+        pausePollingOnExpensiveNetwork = config.pausePollingOnExpensiveNetwork
     }
 
     private func save() {
@@ -232,7 +242,9 @@ struct SettingsView: View {
             showDrafts: showDrafts,
             notificationsEnabled: notificationsEnabled,
             refreshOnOpen: refreshOnOpen,
-            ciStatusExcludeFilter: ciStatusExcludeFilter
+            ciStatusExcludeFilter: ciStatusExcludeFilter,
+            pausePollingInLowPowerMode: pausePollingInLowPowerMode,
+            pausePollingOnExpensiveNetwork: pausePollingOnExpensiveNetwork
         )
 
         viewModel.configuration = config

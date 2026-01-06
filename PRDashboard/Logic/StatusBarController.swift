@@ -83,15 +83,6 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         guard let button = statusItem.button else { return }
 
         if count > 0 {
-            // Create attributed string with badge
-            let attachment = NSTextAttachment()
-            if let image = NSImage(systemSymbolName: "arrow.triangle.pull", accessibilityDescription: nil) {
-                image.isTemplate = true
-                attachment.image = image
-            }
-
-            let attributedString = NSMutableAttributedString()
-
             if let image = NSImage(systemSymbolName: "arrow.triangle.pull", accessibilityDescription: nil) {
                 image.isTemplate = true
                 button.image = image
@@ -135,7 +126,8 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     }
 
     func popoverWillClose(_ notification: Notification) {
-        prManager?.enablePolling(false)
+        // Keep polling active in background for notifications
+        // prManager?.enablePolling(false)
         statusItem.button?.highlight(false)
     }
 }

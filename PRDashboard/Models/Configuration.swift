@@ -7,6 +7,8 @@ struct Configuration: Codable, Equatable {
     var notificationsEnabled: Bool
     var refreshOnOpen: Bool            // refresh immediately when popover opens
     var ciStatusExcludeFilter: String  // keywords to exclude from CI status (e.g., "review")
+    var pausePollingInLowPowerMode: Bool  // pause background polling when Low Power Mode is enabled
+    var pausePollingOnExpensiveNetwork: Bool  // pause background polling on cellular/hotspot
 
     static var `default`: Configuration {
         Configuration(
@@ -15,12 +17,14 @@ struct Configuration: Codable, Equatable {
             showDrafts: true,
             notificationsEnabled: true,
             refreshOnOpen: true,
-            ciStatusExcludeFilter: "review"
+            ciStatusExcludeFilter: "review",
+            pausePollingInLowPowerMode: true,
+            pausePollingOnExpensiveNetwork: true
         )
     }
 
     var isValid: Bool {
-        refreshInterval >= 15
+        refreshInterval >= 60
     }
 }
 
@@ -30,7 +34,7 @@ enum ConfigurationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidRefreshInterval:
-            return "Refresh interval must be at least 15 seconds"
+            return "Refresh interval must be at least 1 minute"
         }
     }
 }

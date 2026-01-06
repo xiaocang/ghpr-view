@@ -1,5 +1,9 @@
 import Foundation
 import Combine
+import Network
+import os
+
+private let logger = Logger(subsystem: "com.prdashboard", category: "PRManager")
 
 @MainActor
 protocol PRManagerType: AnyObject {
@@ -26,6 +30,9 @@ final class PRManager: PRManagerType, ObservableObject {
     private var timer: Timer?
     private var previousPRs: [Int: PullRequest] = [:]
     private var cancellables = Set<AnyCancellable>()
+    private var isLowPowerMode: Bool = ProcessInfo.processInfo.isLowPowerModeEnabled
+    private var isOnExpensiveNetwork: Bool = false
+    private let networkMonitor = NWPathMonitor()
 
     init(
         apiClient: GitHubAPIClient,
@@ -49,47 +56,138 @@ final class PRManager: PRManagerType, ObservableObject {
                 self.handleAuthStateChange(authState)
             }
             .store(in: &cancellables)
+
+        // Observe Low Power Mode changes
+        NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handlePowerStateChange()
+                }
+            }
+            .store(in: &cancellables)
+
+        // Monitor network status for expensive connections (cellular/hotspot)
+        networkMonitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor [weak self] in
+                self?.handleNetworkChange(path)
+            }
+        }
+        networkMonitor.start(queue: DispatchQueue.global(qos: .utility))
+    }
+
+    private func handleNetworkChange(_ path: NWPath) {
+        let wasExpensive = isOnExpensiveNetwork
+        isOnExpensiveNetwork = path.isExpensive
+        logger.info("Network changed: isExpensive=\(path.isExpensive), isConstrained=\(path.isConstrained), pauseOnExpensive=\(self.configuration.pausePollingOnExpensiveNetwork)")
+
+        guard configuration.pausePollingOnExpensiveNetwork else { return }
+
+        if isOnExpensiveNetwork && !wasExpensive {
+            // Entering expensive network - pause polling
+            logger.info("Entering expensive network (cellular/hotspot), pausing polling")
+            timer?.invalidate()
+            timer = nil
+        } else if !isOnExpensiveNetwork && wasExpensive {
+            // Exiting expensive network - resume polling if authenticated
+            logger.info("Exiting expensive network, resuming polling")
+            if oauthManager.authState.isAuthenticated {
+                enablePolling(true)
+            }
+        }
+    }
+
+    private func handlePowerStateChange() {
+        let wasLowPowerMode = isLowPowerMode
+        isLowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
+        logger.info("Power state changed: isLowPowerMode=\(self.isLowPowerMode), pausePollingInLowPowerMode=\(self.configuration.pausePollingInLowPowerMode)")
+
+        guard configuration.pausePollingInLowPowerMode else { return }
+
+        if isLowPowerMode && !wasLowPowerMode {
+            // Entering Low Power Mode - pause polling
+            logger.info("Entering Low Power Mode, pausing polling")
+            timer?.invalidate()
+            timer = nil
+        } else if !isLowPowerMode && wasLowPowerMode {
+            // Exiting Low Power Mode - resume polling if authenticated
+            logger.info("Exiting Low Power Mode, resuming polling")
+            if oauthManager.authState.isAuthenticated {
+                enablePolling(true)
+            }
+        }
     }
 
     private func handleAuthStateChange(_ authState: AuthState) {
-        print("[PRManager] handleAuthStateChange called, isAuthenticated=\(authState.isAuthenticated), username=\(authState.username ?? "nil")")
+        logger.info("handleAuthStateChange: isAuthenticated=\(authState.isAuthenticated), username=\(authState.username ?? "nil")")
         apiClient.updateToken(authState.accessToken ?? "")
 
         if authState.isAuthenticated {
-            print("[PRManager] Calling refresh()...")
-            refresh()
+            // Start background polling for notifications
+            enablePolling(true)
         } else {
+            enablePolling(false)
             prList = .empty
             previousPRs = [:]
         }
     }
 
     func enablePolling(_ enabled: Bool) {
-        timer?.invalidate()
-        timer = nil
+        logger.info("enablePolling(\(enabled)), current timer valid: \(self.timer?.isValid ?? false)")
 
-        if enabled && oauthManager.authState.isAuthenticated {
-            // Immediate refresh when polling starts:
-            // - Always refresh on first open (when no data yet)
-            // - Otherwise, respect refreshOnOpen setting
-            let isFirstOpen = prList.pullRequests.isEmpty && prList.error == nil && !prList.isLoading
-            if isFirstOpen || configuration.refreshOnOpen {
-                refresh()
-            }
+        if !enabled {
+            timer?.invalidate()
+            timer = nil
+            return
+        }
 
-            // Schedule periodic refresh
-            let interval = max(configuration.refreshInterval, 15)
-            timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-                Task { @MainActor in
-                    self?.refresh()
-                }
+        guard oauthManager.authState.isAuthenticated else { return }
+
+        // Check if we need to refresh on open
+        let isFirstOpen = prList.pullRequests.isEmpty && prList.error == nil && !prList.isLoading
+        let timeSinceLastUpdate = Date().timeIntervalSince(prList.lastUpdated)
+        let isStale = timeSinceLastUpdate >= configuration.refreshInterval
+        logger.info("isFirstOpen: \(isFirstOpen), refreshOnOpen: \(self.configuration.refreshOnOpen), isStale: \(isStale) (age: \(Int(timeSinceLastUpdate))s)")
+        if isFirstOpen || configuration.refreshOnOpen || isStale {
+            refresh()
+        }
+
+        // Only create timer if not already running
+        if timer?.isValid == true {
+            logger.info("Timer already running, skipping creation")
+            return
+        }
+
+        // Skip timer creation if in Low Power Mode and setting is enabled
+        if isLowPowerMode && configuration.pausePollingInLowPowerMode {
+            logger.info("Skipping timer creation: Low Power Mode is active")
+            return
+        }
+
+        // Skip timer creation if on expensive network and setting is enabled
+        if isOnExpensiveNetwork && configuration.pausePollingOnExpensiveNetwork {
+            logger.info("Skipping timer creation: on expensive network (cellular/hotspot)")
+            return
+        }
+
+        // Schedule periodic refresh using .common mode so timer fires during scrolling
+        let interval = max(configuration.refreshInterval, 60)
+        logger.info("Creating timer with interval: \(interval)s")
+        let newTimer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            logger.info("Timer fired!")
+            Task { @MainActor in
+                self?.refresh()
             }
         }
+        RunLoop.main.add(newTimer, forMode: .common)
+        timer = newTimer
+        logger.info("Timer created and added to RunLoop, isValid: \(newTimer.isValid)")
     }
 
     func refresh() {
+        logger.info("refresh() called")
         guard oauthManager.authState.isAuthenticated,
               let username = oauthManager.authState.username else {
+            logger.info("refresh() skipped: not authenticated")
             return
         }
 
@@ -104,6 +202,7 @@ final class PRManager: PRManagerType, ObservableObject {
         }
 
         refreshState = .loading
+        logger.info("refresh() starting API call")
         prList = PRList(
             lastUpdated: prList.lastUpdated,
             pullRequests: prList.pullRequests,
@@ -145,8 +244,10 @@ final class PRManager: PRManagerType, ObservableObject {
                 // Update previous state
                 previousPRs = Dictionary(uniqueKeysWithValues: prs.map { ($0.id, $0) })
 
+                let now = Date()
+                logger.info("refresh() completed, updating lastUpdated to \(now)")
                 prList = PRList(
-                    lastUpdated: Date(),
+                    lastUpdated: now,
                     pullRequests: prs,
                     isLoading: false,
                     error: nil
@@ -154,6 +255,7 @@ final class PRManager: PRManagerType, ObservableObject {
                 refreshState = .idle
 
             } catch {
+                logger.error("refresh() failed: \(error.localizedDescription)")
                 prList = PRList(
                     lastUpdated: prList.lastUpdated,
                     pullRequests: prList.pullRequests,
