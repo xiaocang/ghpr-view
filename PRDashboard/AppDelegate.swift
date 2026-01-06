@@ -48,11 +48,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 8. Create status bar controller
         statusBarController = StatusBarController(popover: popover, prManager: prManager!)
 
-        // 9. Observe PR list changes to update badge
+        // 9. Observe PR list changes to update badge (authored PRs only)
         prManager?.$prList
             .receive(on: DispatchQueue.main)
             .sink { [weak self] prList in
-                self?.statusBarController?.updateBadge(count: prList.totalUnresolvedCount)
+                self?.statusBarController?.updateBadge(count: prList.authoredUnresolvedCount)
             }
             .store(in: &cancellables)
 
