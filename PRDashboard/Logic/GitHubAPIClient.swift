@@ -45,25 +45,42 @@ final class GitHubAPIClient {
         self.token = newToken
     }
 
-    func fetchPullRequests(username: String, category: PRCategory) async throws -> [PullRequest] {
-        let searchQuery: String
-        switch category {
-        case .authored:
-            searchQuery = "is:pr is:open author:\(username)"
-        case .reviewRequest:
-            searchQuery = "is:pr is:open review-requested:\(username)"
-        }
-
+    func fetchPullRequests(username: String, searchQuery: String, category: PRCategory) async throws -> [PullRequest] {
         let query = buildGraphQLQuery(searchQuery: searchQuery)
         let responseData = try await executeGraphQL(query: query)
         return try parseSearchResponse(data: responseData, category: category)
     }
 
     func fetchAllPullRequests(username: String) async throws -> [PullRequest] {
-        async let authoredPRs = fetchPullRequests(username: username, category: .authored)
-        async let reviewPRs = fetchPullRequests(username: username, category: .reviewRequest)
+        // Fetch authored PRs
+        let authoredQuery = "is:pr is:open author:\(username)"
+        async let authoredPRs = fetchPullRequests(username: username, searchQuery: authoredQuery, category: .authored)
 
-        let (authored, reviews) = try await (authoredPRs, reviewPRs)
+        // Fetch review-requested PRs (pending reviews)
+        let reviewRequestedQuery = "is:pr is:open -author:\(username) review-requested:\(username)"
+        async let reviewRequestedPRs = fetchPullRequests(username: username, searchQuery: reviewRequestedQuery, category: .reviewRequest)
+
+        // Fetch reviewed-by PRs (already reviewed)
+        let reviewedByQuery = "is:pr is:open -author:\(username) reviewed-by:\(username)"
+        async let reviewedByPRs = fetchPullRequests(username: username, searchQuery: reviewedByQuery, category: .reviewRequest)
+
+        let (authored, reviewRequested, reviewedBy) = try await (authoredPRs, reviewRequestedPRs, reviewedByPRs)
+
+        // Combine review-requested and reviewed-by, deduplicating
+        var seenReviews = Set<Int>()
+        var reviews: [PullRequest] = []
+        for pr in reviewRequested {
+            if !seenReviews.contains(pr.id) {
+                seenReviews.insert(pr.id)
+                reviews.append(pr)
+            }
+        }
+        for pr in reviewedBy {
+            if !seenReviews.contains(pr.id) {
+                seenReviews.insert(pr.id)
+                reviews.append(pr)
+            }
+        }
 
         // Deduplicate by PR id (in case same PR appears in both)
         var seen = Set<Int>()

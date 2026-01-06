@@ -1,6 +1,9 @@
 import Foundation
 import Combine
 import AppKit
+import os
+
+private let logger = Logger(subsystem: "com.prdashboard", category: "PRListViewModel")
 
 @MainActor
 final class PRListViewModel: ObservableObject {
@@ -105,7 +108,9 @@ final class PRListViewModel: ObservableObject {
     }
 
     var reviewRequestPRs: [PullRequest] {
-        filteredPRs.filter { $0.category == .reviewRequest }
+        let result = filteredPRs.filter { $0.category == .reviewRequest }
+        logger.info("reviewRequestPRs count: \(result.count), all categories: \(Set(self.filteredPRs.map { $0.category.rawValue }))")
+        return result
     }
 
     var groupedAuthoredPRs: [(String, [PullRequest])] {
@@ -113,7 +118,9 @@ final class PRListViewModel: ObservableObject {
     }
 
     var groupedReviewPRs: [(String, [PullRequest])] {
-        groupByRepo(reviewRequestPRs)
+        let result = groupByRepo(reviewRequestPRs)
+        logger.info("groupedReviewPRs count: \(result.count), repos: \(result.map { $0.0 })")
+        return result
     }
 
     var totalUnresolvedCount: Int {
