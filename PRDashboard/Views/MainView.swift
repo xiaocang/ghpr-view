@@ -206,9 +206,12 @@ struct MainView: View {
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             } else {
-                Text("Updated \(viewModel.lastUpdatedFormatted)")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
+                // Use TimelineView to update relative time every 10 seconds
+                TimelineView(.periodic(from: .now, by: 10)) { _ in
+                    Text("Updated \(formatRelativeTime(viewModel.prList.lastUpdated))")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
             }
 
             Spacer()
@@ -225,6 +228,12 @@ struct MainView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
+    }
+
+    private func formatRelativeTime(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
 
