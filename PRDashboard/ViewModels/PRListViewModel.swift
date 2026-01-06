@@ -15,6 +15,7 @@ final class PRListViewModel: ObservableObject {
     @Published private(set) var authError: Error?
     @Published private(set) var isValidatingPAT: Bool = false
     @Published private(set) var patError: Error?
+    @Published private(set) var rateLimitInfo: RateLimitInfo = .empty
 
     private let prManager: PRManager
     private let oauthManager: GitHubOAuthManager
@@ -35,6 +36,14 @@ final class PRListViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] prList in
                 self?.prList = prList
+            }
+            .store(in: &cancellables)
+
+        // Bind rate limit info
+        prManager.$rateLimitInfo
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] info in
+                self?.rateLimitInfo = info
             }
             .store(in: &cancellables)
 

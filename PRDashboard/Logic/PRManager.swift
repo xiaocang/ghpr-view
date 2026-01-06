@@ -12,6 +12,7 @@ protocol PRManagerType: AnyObject {
 final class PRManager: PRManagerType, ObservableObject {
     @Published private(set) var prList: PRList = .empty
     @Published private(set) var refreshState: RefreshState = .idle
+    @Published private(set) var rateLimitInfo: RateLimitInfo = .empty
     @Published var configuration: Configuration
 
     enum RefreshState {
@@ -51,6 +52,14 @@ final class PRManager: PRManagerType, ObservableObject {
             .sink { [weak self] authState in
                 guard let self else { return }
                 self.handleAuthStateChange(authState)
+            }
+            .store(in: &cancellables)
+
+        // Forward rate limit info from API client
+        apiClient.$rateLimitInfo
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] info in
+                self?.rateLimitInfo = info
             }
             .store(in: &cancellables)
 

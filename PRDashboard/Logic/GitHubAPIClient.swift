@@ -1,5 +1,19 @@
 import Foundation
 
+struct RateLimitInfo: Equatable {
+    let limit: Int
+    let remaining: Int
+    let resetDate: Date
+
+    var isLow: Bool {
+        remaining < 100
+    }
+
+    static var empty: RateLimitInfo {
+        RateLimitInfo(limit: 5000, remaining: 5000, resetDate: Date())
+    }
+}
+
 enum APIError: LocalizedError {
     case unauthorized
     case rateLimited(resetDate: Date)
@@ -28,11 +42,13 @@ enum APIError: LocalizedError {
     }
 }
 
-final class GitHubAPIClient {
+final class GitHubAPIClient: ObservableObject {
     private let graphQLURL = URL(string: "https://api.github.com/graphql")!
     private var token: String
     private let session: URLSession
     private var lastETag: String?
+
+    @Published private(set) var rateLimitInfo: RateLimitInfo = .empty
 
     init(token: String) {
         self.token = token
@@ -215,6 +231,22 @@ final class GitHubAPIClient {
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
+        }
+
+        // Parse rate limit headers
+        if let limitStr = httpResponse.value(forHTTPHeaderField: "X-RateLimit-Limit"),
+           let remainingStr = httpResponse.value(forHTTPHeaderField: "X-RateLimit-Remaining"),
+           let resetStr = httpResponse.value(forHTTPHeaderField: "X-RateLimit-Reset"),
+           let limit = Int(limitStr),
+           let remaining = Int(remainingStr),
+           let resetTimestamp = TimeInterval(resetStr) {
+            Task { @MainActor in
+                self.rateLimitInfo = RateLimitInfo(
+                    limit: limit,
+                    remaining: remaining,
+                    resetDate: Date(timeIntervalSince1970: resetTimestamp)
+                )
+            }
         }
 
         switch httpResponse.statusCode {

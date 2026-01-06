@@ -216,6 +216,16 @@ struct MainView: View {
 
             Spacer()
 
+            // Rate limit indicator
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.system(size: 9))
+                Text("\(viewModel.rateLimitInfo.remaining)/\(viewModel.rateLimitInfo.limit)")
+                    .font(.system(size: 10))
+            }
+            .foregroundColor(viewModel.rateLimitInfo.isLow ? .orange : .secondary)
+            .help("API rate limit: \(viewModel.rateLimitInfo.remaining) remaining of \(viewModel.rateLimitInfo.limit)")
+
             if viewModel.totalUnresolvedCount > 0 {
                 HStack(spacing: 4) {
                     Image(systemName: "bubble.left.and.bubble.right")
