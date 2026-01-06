@@ -10,20 +10,9 @@ struct PRRowView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             // Author avatar
-            AsyncImage(url: pr.authorAvatarURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                case .failure, .empty:
-                    initialsView
-                @unknown default:
-                    initialsView
-                }
-            }
-            .frame(width: 32, height: 32)
-            .clipShape(Circle())
+            CachedAvatarView(url: pr.authorAvatarURL, authorInitial: pr.author)
+                .frame(width: 32, height: 32)
+                .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 4) {
                 // Repo and PR number
@@ -88,16 +77,6 @@ struct PRRowView: View {
             Button("Copy URL") {
                 onCopyURL()
             }
-        }
-    }
-
-    private var initialsView: some View {
-        ZStack {
-            Circle()
-                .fill(Color.gray.opacity(0.3))
-            Text(String(pr.author.prefix(1)).uppercased())
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.secondary)
         }
     }
 }

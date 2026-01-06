@@ -28,6 +28,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             oauthManager: oauthManager!
         )
 
+        // 4.1 Load cached PR data for immediate display
+        prManager?.loadCachedData()
+
         // 5. Create view model
         let viewModel = PRListViewModel(prManager: prManager!, oauthManager: oauthManager!)
 

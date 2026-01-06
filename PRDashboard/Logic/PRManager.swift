@@ -123,6 +123,20 @@ final class PRManager: PRManagerType, ObservableObject {
             enablePolling(false)
             prList = .empty
             previousPRs = [:]
+            // Clear caches on sign-out
+            PRCache.shared.clear()
+            AvatarCache.shared.clear()
+        }
+    }
+
+    /// Load cached PR data on startup for immediate display
+    func loadCachedData() {
+        if let cached = PRCache.shared.load() {
+            self.prList = cached
+            // Rebuild previousPRs for change detection
+            for pr in cached.pullRequests {
+                previousPRs[pr.id] = pr
+            }
         }
     }
 
@@ -227,21 +241,36 @@ final class PRManager: PRManagerType, ObservableObject {
                 // Update previous state
                 previousPRs = Dictionary(uniqueKeysWithValues: prs.map { ($0.id, $0) })
 
-                prList = PRList(
+                let newPRList = PRList(
                     lastUpdated: Date(),
                     pullRequests: prs,
                     isLoading: false,
                     error: nil
                 )
+                prList = newPRList
                 refreshState = .idle
 
+                // Save to cache after successful refresh
+                PRCache.shared.save(newPRList)
+
             } catch {
-                prList = PRList(
-                    lastUpdated: prList.lastUpdated,
-                    pullRequests: prList.pullRequests,
-                    isLoading: false,
-                    error: error
-                )
+                // Try to fallback to stale cache on API error
+                if prList.pullRequests.isEmpty,
+                   let cached = PRCache.shared.load(ignoreExpiry: true) {
+                    prList = PRList(
+                        lastUpdated: cached.lastUpdated,
+                        pullRequests: cached.pullRequests,
+                        isLoading: false,
+                        error: error  // Still show error to indicate stale data
+                    )
+                } else {
+                    prList = PRList(
+                        lastUpdated: prList.lastUpdated,
+                        pullRequests: prList.pullRequests,
+                        isLoading: false,
+                        error: error
+                    )
+                }
                 refreshState = .error(error)
             }
         }

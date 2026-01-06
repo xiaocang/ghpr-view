@@ -115,14 +115,14 @@ final class GitHubAPIClient: ObservableObject {
                             }
                             name
                         }
-                        reviewThreads(first: 100) {
+                        reviewThreads(first: 20) {
                             nodes {
                                 id
                                 isResolved
                                 isOutdated
                                 path
                                 line
-                                comments(first: 10) {
+                                comments(first: 5) {
                                     nodes {
                                         id
                                         author {
@@ -139,7 +139,7 @@ final class GitHubAPIClient: ObservableObject {
                                 commit {
                                     statusCheckRollup {
                                         state
-                                        contexts(first: 100) {
+                                        contexts(first: 20) {
                                             nodes {
                                                 ... on CheckRun {
                                                     conclusion
@@ -197,14 +197,14 @@ final class GitHubAPIClient: ObservableObject {
                             }
                             name
                         }
-                        reviewThreads(first: 100) {
+                        reviewThreads(first: 20) {
                             nodes {
                                 id
                                 isResolved
                                 isOutdated
                                 path
                                 line
-                                comments(first: 10) {
+                                comments(first: 5) {
                                     nodes {
                                         id
                                         author {
@@ -221,7 +221,7 @@ final class GitHubAPIClient: ObservableObject {
                                 commit {
                                     statusCheckRollup {
                                         state
-                                        contexts(first: 100) {
+                                        contexts(first: 20) {
                                             nodes {
                                                 ... on CheckRun {
                                                     conclusion

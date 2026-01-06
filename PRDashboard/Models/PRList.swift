@@ -1,10 +1,36 @@
 import Foundation
 
-struct PRList {
+struct PRList: Codable {
     var lastUpdated: Date
     var pullRequests: [PullRequest]
     var isLoading: Bool
     var error: Error?
+
+    // Custom Codable - only encode persistent state, not transient (isLoading, error)
+    enum CodingKeys: String, CodingKey {
+        case lastUpdated, pullRequests
+    }
+
+    init(lastUpdated: Date, pullRequests: [PullRequest], isLoading: Bool, error: Error?) {
+        self.lastUpdated = lastUpdated
+        self.pullRequests = pullRequests
+        self.isLoading = isLoading
+        self.error = error
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        lastUpdated = try container.decode(Date.self, forKey: .lastUpdated)
+        pullRequests = try container.decode([PullRequest].self, forKey: .pullRequests)
+        isLoading = false
+        error = nil
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(lastUpdated, forKey: .lastUpdated)
+        try container.encode(pullRequests, forKey: .pullRequests)
+    }
 
     var totalUnresolvedCount: Int {
         pullRequests.reduce(0) { $0 + $1.unresolvedCount }

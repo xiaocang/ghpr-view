@@ -12,11 +12,11 @@ struct Configuration: Codable, Equatable {
 
     static var `default`: Configuration {
         Configuration(
-            refreshInterval: 60,
+            refreshInterval: 300,  // 5 minutes
             repositories: [],
             showDrafts: true,
             notificationsEnabled: true,
-            refreshOnOpen: true,
+            refreshOnOpen: false,
             ciStatusExcludeFilter: "review",
             pausePollingInLowPowerMode: true,
             pausePollingOnExpensiveNetwork: true
