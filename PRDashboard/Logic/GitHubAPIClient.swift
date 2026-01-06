@@ -68,55 +68,10 @@ final class GitHubAPIClient: ObservableObject {
     }
 
     func fetchAllPullRequests(username: String) async throws -> [PullRequest] {
-        // Fetch authored PRs
-        let authoredQuery = "is:pr is:open author:\(username)"
-        async let authoredPRs = fetchPullRequests(username: username, searchQuery: authoredQuery, category: .authored)
-
-        // Fetch review-requested PRs (pending reviews)
-        let reviewRequestedQuery = "is:pr is:open -author:\(username) review-requested:\(username)"
-        async let reviewRequestedPRs = fetchPullRequests(username: username, searchQuery: reviewRequestedQuery, category: .reviewRequest)
-
-        // Fetch reviewed-by PRs (already reviewed)
-        let reviewedByQuery = "is:pr is:open -author:\(username) reviewed-by:\(username)"
-        async let reviewedByPRs = fetchPullRequests(username: username, searchQuery: reviewedByQuery, category: .reviewRequest)
-
-        let (authored, reviewRequested, reviewedBy) = try await (authoredPRs, reviewRequestedPRs, reviewedByPRs)
-
-        // Combine review-requested and reviewed-by, deduplicating
-        var seenReviews = Set<Int>()
-        var reviews: [PullRequest] = []
-        for pr in reviewRequested {
-            if !seenReviews.contains(pr.id) {
-                seenReviews.insert(pr.id)
-                reviews.append(pr)
-            }
-        }
-        for pr in reviewedBy {
-            if !seenReviews.contains(pr.id) {
-                seenReviews.insert(pr.id)
-                reviews.append(pr)
-            }
-        }
-
-        // Deduplicate by PR id (in case same PR appears in both)
-        var seen = Set<Int>()
-        var result: [PullRequest] = []
-
-        for pr in authored {
-            if !seen.contains(pr.id) {
-                seen.insert(pr.id)
-                result.append(pr)
-            }
-        }
-
-        for pr in reviews {
-            if !seen.contains(pr.id) {
-                seen.insert(pr.id)
-                result.append(pr)
-            }
-        }
-
-        return result.sorted { $0.updatedAt > $1.updatedAt }
+        // Combined query using GraphQL aliases - single API call instead of 3
+        let query = buildCombinedQuery(username: username)
+        let responseData = try await executeGraphQL(query: query)
+        return try parseCombinedResponse(data: responseData)
     }
 
     func validateToken() async throws -> Bool {
@@ -137,6 +92,86 @@ final class GitHubAPIClient: ObservableObject {
     }
 
     // MARK: - Private
+
+    private func buildCombinedQuery(username: String) -> String {
+        let prFragment = """
+                nodes {
+                    ... on PullRequest {
+                        databaseId
+                        number
+                        title
+                        url
+                        state
+                        isDraft
+                        createdAt
+                        updatedAt
+                        author {
+                            login
+                            avatarUrl
+                        }
+                        repository {
+                            owner {
+                                login
+                            }
+                            name
+                        }
+                        reviewThreads(first: 100) {
+                            nodes {
+                                id
+                                isResolved
+                                isOutdated
+                                path
+                                line
+                                comments(first: 10) {
+                                    nodes {
+                                        id
+                                        author {
+                                            login
+                                        }
+                                        body
+                                        createdAt
+                                    }
+                                }
+                            }
+                        }
+                        commits(last: 1) {
+                            nodes {
+                                commit {
+                                    statusCheckRollup {
+                                        state
+                                        contexts(first: 100) {
+                                            nodes {
+                                                ... on CheckRun {
+                                                    conclusion
+                                                }
+                                                ... on StatusContext {
+                                                    context
+                                                    state
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+        """
+
+        return """
+        query {
+            authored: search(query: "is:pr is:open author:\(username)", type: ISSUE, first: 50) {
+                \(prFragment)
+            }
+            reviewRequested: search(query: "is:pr is:open -author:\(username) review-requested:\(username)", type: ISSUE, first: 50) {
+                \(prFragment)
+            }
+            reviewedBy: search(query: "is:pr is:open -author:\(username) reviewed-by:\(username)", type: ISSUE, first: 50) {
+                \(prFragment)
+            }
+        }
+        """
+    }
 
     private func buildGraphQLQuery(searchQuery: String) -> String {
         """
@@ -391,6 +426,150 @@ final class GitHubAPIClient: ObservableObject {
         }
     }
 
+    private func parseCombinedResponse(data: Data) throws -> [PullRequest] {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        do {
+            let response = try decoder.decode(CombinedGraphQLResponse.self, from: data)
+
+            // Parse authored PRs
+            let authoredPRs = parseNodes(response.data.authored.nodes, category: .authored)
+
+            // Parse review requested PRs
+            let reviewRequestedPRs = parseNodes(response.data.reviewRequested.nodes, category: .reviewRequest)
+
+            // Parse reviewed-by PRs (PRs user has already reviewed)
+            let reviewedByPRs = parseNodes(response.data.reviewedBy.nodes, category: .reviewRequest)
+
+            // Combine review requested and reviewed-by, deduplicating by ID
+            var reviewPRsById: [Int: PullRequest] = [:]
+            for pr in reviewRequestedPRs {
+                reviewPRsById[pr.id] = pr
+            }
+            for pr in reviewedByPRs {
+                if reviewPRsById[pr.id] == nil {
+                    reviewPRsById[pr.id] = pr
+                }
+            }
+
+            // Combine and sort by updatedAt (most recent first)
+            let allPRs = authoredPRs + Array(reviewPRsById.values)
+            return allPRs.sorted { $0.updatedAt > $1.updatedAt }
+        } catch {
+            throw APIError.decoding(error)
+        }
+    }
+
+    private func parseNodes(_ nodes: [CombinedGraphQLResponse.PRNode], category: PRCategory) -> [PullRequest] {
+        return nodes.compactMap { node in
+            guard let databaseId = node.databaseId else { return nil }
+
+            let reviewThreads = node.reviewThreads?.nodes.map { thread -> ReviewThread in
+                let comments = thread.comments.nodes.map { comment -> ReviewComment in
+                    ReviewComment(
+                        id: comment.id,
+                        author: comment.author?.login ?? "unknown",
+                        body: comment.body,
+                        createdAt: comment.createdAt
+                    )
+                }
+                return ReviewThread(
+                    id: thread.id,
+                    isResolved: thread.isResolved,
+                    isOutdated: thread.isOutdated,
+                    path: thread.path,
+                    line: thread.line,
+                    comments: comments
+                )
+            } ?? []
+
+            // Extract CI status and counts from the last commit
+            let statusCheckRollup = node.commits?.nodes.first?.commit.statusCheckRollup
+
+            // Count check statuses
+            var successCount = 0
+            var failureCount = 0
+            var pendingCount = 0
+
+            if let contexts = statusCheckRollup?.contexts?.nodes {
+                for context in contexts {
+                    // CheckRun uses conclusion, StatusContext uses state
+                    if let conclusion = context.conclusion {
+                        switch conclusion.uppercased() {
+                        case "SUCCESS":
+                            successCount += 1
+                        case "FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE":
+                            failureCount += 1
+                        case "CANCELLED", "SKIPPED", "NEUTRAL", "STALE":
+                            // Don't count cancelled/skipped/neutral in totals
+                            break
+                        default:
+                            pendingCount += 1  // null or unknown = in progress
+                        }
+                    } else if let state = context.state {
+                        // Skip status contexts matching exclude filter (only show CI checks)
+                        let excludeFilter = Self.loadCIStatusExcludeFilter()
+                        if !excludeFilter.isEmpty,
+                           let contextName = context.context,
+                           contextName.lowercased().contains(excludeFilter.lowercased()) {
+                            continue
+                        }
+                        switch state.uppercased() {
+                        case "SUCCESS":
+                            successCount += 1
+                        case "FAILURE", "ERROR":
+                            failureCount += 1
+                        case "PENDING", "EXPECTED":
+                            pendingCount += 1
+                        default:
+                            break
+                        }
+                    } else {
+                        // No conclusion or state means in progress
+                        pendingCount += 1
+                    }
+                }
+            }
+
+            // Derive CI status from our counts (not GitHub's rollup which may include excluded checks)
+            let ciStatus: CIStatus?
+            if failureCount > 0 {
+                ciStatus = .failure
+            } else if pendingCount > 0 {
+                ciStatus = .pending
+            } else if successCount > 0 {
+                ciStatus = .success
+            } else if statusCheckRollup != nil {
+                // No checks we count, but rollup exists - use expected
+                ciStatus = .expected
+            } else {
+                ciStatus = nil
+            }
+
+            return PullRequest(
+                id: databaseId,
+                number: node.number,
+                title: node.title,
+                author: node.author?.login ?? "unknown",
+                authorAvatarURL: node.author?.avatarUrl,
+                repositoryOwner: node.repository.owner.login,
+                repositoryName: node.repository.name,
+                url: node.url,
+                state: PRState(rawValue: node.state) ?? .open,
+                isDraft: node.isDraft,
+                createdAt: node.createdAt,
+                updatedAt: node.updatedAt,
+                reviewThreads: reviewThreads,
+                category: category,
+                ciStatus: ciStatus,
+                checkSuccessCount: successCount,
+                checkFailureCount: failureCount,
+                checkPendingCount: pendingCount
+            )
+        }
+    }
+
     // MARK: - Configuration
 
     private static let configurationKey = "PRDashboard.Configuration"
@@ -502,5 +681,101 @@ private struct GraphQLResponse: Decodable {
         let conclusion: String?  // SUCCESS, FAILURE, NEUTRAL, CANCELLED, SKIPPED, TIMED_OUT, ACTION_REQUIRED, null (in progress)
         let state: String?       // PENDING, SUCCESS, FAILURE, ERROR, EXPECTED
         let context: String?     // StatusContext name (e.g., "ci/build", "code-review/reviewable")
+    }
+}
+
+// MARK: - Combined GraphQL Response Models (for single-query fetch)
+
+private struct CombinedGraphQLResponse: Decodable {
+    let data: DataContainer
+
+    struct DataContainer: Decodable {
+        let authored: SearchResult
+        let reviewRequested: SearchResult
+        let reviewedBy: SearchResult
+    }
+
+    struct SearchResult: Decodable {
+        let nodes: [PRNode]
+    }
+
+    struct PRNode: Decodable {
+        let databaseId: Int?
+        let number: Int
+        let title: String
+        let url: URL
+        let state: String
+        let isDraft: Bool
+        let createdAt: Date
+        let updatedAt: Date
+        let author: Author?
+        let repository: Repository
+        let reviewThreads: ReviewThreadsContainer?
+        let commits: CommitsContainer?
+    }
+
+    struct Author: Decodable {
+        let login: String
+        let avatarUrl: URL?
+    }
+
+    struct Repository: Decodable {
+        let owner: Owner
+        let name: String
+    }
+
+    struct Owner: Decodable {
+        let login: String
+    }
+
+    struct ReviewThreadsContainer: Decodable {
+        let nodes: [ReviewThreadNode]
+    }
+
+    struct ReviewThreadNode: Decodable {
+        let id: String
+        let isResolved: Bool
+        let isOutdated: Bool
+        let path: String?
+        let line: Int?
+        let comments: CommentsContainer
+    }
+
+    struct CommentsContainer: Decodable {
+        let nodes: [CommentNode]
+    }
+
+    struct CommentNode: Decodable {
+        let id: String
+        let author: Author?
+        let body: String
+        let createdAt: Date
+    }
+
+    struct CommitsContainer: Decodable {
+        let nodes: [CommitNode]
+    }
+
+    struct CommitNode: Decodable {
+        let commit: CommitInfo
+    }
+
+    struct CommitInfo: Decodable {
+        let statusCheckRollup: StatusCheckRollup?
+    }
+
+    struct StatusCheckRollup: Decodable {
+        let state: String
+        let contexts: ContextsContainer?
+    }
+
+    struct ContextsContainer: Decodable {
+        let nodes: [ContextNode]
+    }
+
+    struct ContextNode: Decodable {
+        let conclusion: String?
+        let state: String?
+        let context: String?
     }
 }
