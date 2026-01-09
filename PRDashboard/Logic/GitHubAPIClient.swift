@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let logger = Logger(subsystem: "com.prdashboard", category: "GitHubAPIClient")
 
 struct RateLimitInfo: Equatable {
     let limit: Int
@@ -67,11 +70,16 @@ final class GitHubAPIClient: ObservableObject {
         return try parseSearchResponse(data: responseData, category: category)
     }
 
-    func fetchAllPullRequests(username: String) async throws -> [PullRequest] {
-        // Combined query using GraphQL aliases - single API call instead of 3
+    struct CombinedPRResult {
+        let openPRs: [PullRequest]
+        let mergedPRs: [PullRequest]
+    }
+
+    func fetchAllPullRequests(username: String) async throws -> CombinedPRResult {
+        // Combined query using GraphQL aliases - single API call instead of 4
         let query = buildCombinedQuery(username: username)
         let responseData = try await executeGraphQL(query: query)
-        return try parseCombinedResponse(data: responseData)
+        return try parseCombinedResponse(data: responseData, username: username)
     }
 
     func validateToken() async throws -> Bool {
@@ -105,6 +113,7 @@ final class GitHubAPIClient: ObservableObject {
                         isDraft
                         createdAt
                         updatedAt
+                        mergedAt
                         author {
                             login
                             avatarUrl
@@ -158,6 +167,8 @@ final class GitHubAPIClient: ObservableObject {
                 }
         """
 
+        let mergedSince = Self.dateStringForSearch(daysBack: 2)
+
         return """
         query {
             authored: search(query: "is:pr is:open author:\(username)", type: ISSUE, first: 50) {
@@ -169,8 +180,24 @@ final class GitHubAPIClient: ObservableObject {
             reviewedBy: search(query: "is:pr is:open -author:\(username) reviewed-by:\(username)", type: ISSUE, first: 50) {
                 \(prFragment)
             }
+            mergedInvolved: search(query: "is:pr is:merged involves:\(username) merged:>=\(mergedSince)", type: ISSUE, first: 50) {
+                \(prFragment)
+            }
         }
         """
+    }
+
+    private static func dateStringForSearch(daysBack: Int) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+
+        let sinceDate = calendar.date(byAdding: .day, value: -daysBack, to: Date()) ?? Date()
+
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: sinceDate)
     }
 
     private func buildGraphQLQuery(searchQuery: String) -> String {
@@ -187,6 +214,7 @@ final class GitHubAPIClient: ObservableObject {
                         isDraft
                         createdAt
                         updatedAt
+                        mergedAt
                         author {
                             login
                             avatarUrl
@@ -413,6 +441,7 @@ final class GitHubAPIClient: ObservableObject {
                     isDraft: node.isDraft,
                     createdAt: node.createdAt,
                     updatedAt: node.updatedAt,
+                    mergedAt: node.mergedAt,
                     reviewThreads: reviewThreads,
                     category: category,
                     ciStatus: ciStatus,
@@ -426,12 +455,19 @@ final class GitHubAPIClient: ObservableObject {
         }
     }
 
-    private func parseCombinedResponse(data: Data) throws -> [PullRequest] {
+    private func parseCombinedResponse(data: Data, username: String) throws -> CombinedPRResult {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
         do {
             let response = try decoder.decode(CombinedGraphQLResponse.self, from: data)
+
+            logger.info("Raw response node counts - authored: \(response.data.authored.nodes.count), reviewRequested: \(response.data.reviewRequested.nodes.count), reviewedBy: \(response.data.reviewedBy.nodes.count), mergedInvolved: \(response.data.mergedInvolved.nodes.count)")
+
+            // Log first few merged nodes for debugging
+            for (idx, node) in response.data.mergedInvolved.nodes.prefix(3).enumerated() {
+                logger.debug("mergedInvolved[\(idx)]: #\(node.number) databaseId=\(node.databaseId.map { String($0) } ?? "nil") state=\(node.state) mergedAt=\(node.mergedAt.map { String(describing: $0) } ?? "nil")")
+            }
 
             // Parse authored PRs
             let authoredPRs = parseNodes(response.data.authored.nodes, category: .authored)
@@ -441,6 +477,15 @@ final class GitHubAPIClient: ObservableObject {
 
             // Parse reviewed-by PRs (PRs user has already reviewed)
             let reviewedByPRs = parseNodes(response.data.reviewedBy.nodes, category: .reviewRequest)
+
+            // Parse merged PRs where user is involved (author or reviewer)
+            // Determine category based on whether user is author
+            let mergedInvolvedPRs = parseNodes(
+                response.data.mergedInvolved.nodes,
+                category: .reviewRequest,
+                usernameForAuthoredCheck: username
+            )
+            logger.info("Parsed mergedInvolvedPRs count: \(mergedInvolvedPRs.count)")
 
             // Combine review requested and reviewed-by, deduplicating by ID
             var reviewPRsById: [Int: PullRequest] = [:]
@@ -453,15 +498,33 @@ final class GitHubAPIClient: ObservableObject {
                 }
             }
 
-            // Combine and sort by updatedAt (most recent first)
-            let allPRs = authoredPRs + Array(reviewPRsById.values)
-            return allPRs.sorted { $0.updatedAt > $1.updatedAt }
+            // Combine open PRs and sort by updatedAt (most recent first)
+            let openPRs = authoredPRs + Array(reviewPRsById.values)
+
+            // Deduplicate merged results, keep only last 24h by mergedAt, and sort by mergedAt/updatedAt
+            let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
+            var mergedById: [Int: PullRequest] = [:]
+            for pr in mergedInvolvedPRs {
+                guard let mergedAt = pr.mergedAt, mergedAt >= cutoff else { continue }
+                mergedById[pr.id] = pr
+            }
+            let mergedPRs = Array(mergedById.values).sorted { ($0.mergedAt ?? $0.updatedAt) > ($1.mergedAt ?? $1.updatedAt) }
+
+            return CombinedPRResult(
+                openPRs: openPRs.sorted { $0.updatedAt > $1.updatedAt },
+                mergedPRs: mergedPRs
+            )
         } catch {
             throw APIError.decoding(error)
         }
     }
 
-    private func parseNodes(_ nodes: [CombinedGraphQLResponse.PRNode], category: PRCategory) -> [PullRequest] {
+    private func parseNodes(
+        _ nodes: [CombinedGraphQLResponse.PRNode],
+        category: PRCategory,
+        usernameForAuthoredCheck: String? = nil
+    ) -> [PullRequest] {
+        let usernameLower = usernameForAuthoredCheck?.lowercased()
         return nodes.compactMap { node in
             guard let databaseId = node.databaseId else { return nil }
 
@@ -547,6 +610,18 @@ final class GitHubAPIClient: ObservableObject {
                 ciStatus = nil
             }
 
+            // Determine category - if username provided, check if user is author
+            let resolvedCategory: PRCategory
+            if let usernameLower {
+                if node.author?.login.lowercased() == usernameLower {
+                    resolvedCategory = .authored
+                } else {
+                    resolvedCategory = category
+                }
+            } else {
+                resolvedCategory = category
+            }
+
             return PullRequest(
                 id: databaseId,
                 number: node.number,
@@ -560,8 +635,9 @@ final class GitHubAPIClient: ObservableObject {
                 isDraft: node.isDraft,
                 createdAt: node.createdAt,
                 updatedAt: node.updatedAt,
+                mergedAt: node.mergedAt,
                 reviewThreads: reviewThreads,
-                category: category,
+                category: resolvedCategory,
                 ciStatus: ciStatus,
                 checkSuccessCount: successCount,
                 checkFailureCount: failureCount,
@@ -611,6 +687,7 @@ private struct GraphQLResponse: Decodable {
         let isDraft: Bool
         let createdAt: Date
         let updatedAt: Date
+        let mergedAt: Date?
         let author: Author?
         let repository: Repository
         let reviewThreads: ReviewThreadsContainer?
@@ -693,6 +770,7 @@ private struct CombinedGraphQLResponse: Decodable {
         let authored: SearchResult
         let reviewRequested: SearchResult
         let reviewedBy: SearchResult
+        let mergedInvolved: SearchResult
     }
 
     struct SearchResult: Decodable {
@@ -708,6 +786,7 @@ private struct CombinedGraphQLResponse: Decodable {
         let isDraft: Bool
         let createdAt: Date
         let updatedAt: Date
+        let mergedAt: Date?
         let author: Author?
         let repository: Repository
         let reviewThreads: ReviewThreadsContainer?

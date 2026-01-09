@@ -20,7 +20,7 @@ struct MainView: View {
                 } else if let error = viewModel.prList.error {
                     // Error state
                     errorView(error)
-                } else if viewModel.filteredPRs.isEmpty {
+                } else if viewModel.filteredPRs.isEmpty && viewModel.mergedTodayPRs.isEmpty {
                     // Empty state
                     emptyView
                 } else {
@@ -105,6 +105,16 @@ struct MainView: View {
                             .id("review-\(repo)")
                     }
                 }
+
+                // Merged Today section
+                if !viewModel.mergedTodayPRs.isEmpty {
+                    sectionHeader("Merged Today", count: viewModel.mergedTodayPRs.count)
+
+                    ForEach(viewModel.groupedMergedTodayPRs, id: \.0) { repo, prs in
+                        repoSection(repo: repo, prs: prs, showCIStatus: false)
+                            .id("merged-\(repo)")
+                    }
+                }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -126,7 +136,7 @@ struct MainView: View {
         .padding(.bottom, 4)
     }
 
-    private func repoSection(repo: String, prs: [PullRequest]) -> some View {
+    private func repoSection(repo: String, prs: [PullRequest], showCIStatus: Bool = true) -> some View {
         let ids = prs.map { $0.id }
         let idsStr = ids.map { String($0) }.joined(separator: ",")
         let cat = prs.first?.category.rawValue ?? "none"
@@ -137,7 +147,8 @@ struct MainView: View {
                 PRRowView(
                     pr: pr,
                     onOpen: { viewModel.openPR(pr) },
-                    onCopyURL: { viewModel.copyURL(pr) }
+                    onCopyURL: { viewModel.copyURL(pr) },
+                    showCIStatus: showCIStatus
                 )
             }
         }

@@ -4,6 +4,7 @@ struct PRRowView: View {
     let pr: PullRequest
     let onOpen: () -> Void
     let onCopyURL: () -> Void
+    var showCIStatus: Bool = true
 
     @State private var isHovered = false
 
@@ -44,7 +45,7 @@ struct PRRowView: View {
 
                     Spacer()
 
-                    if let ciStatus = pr.ciStatus {
+                    if showCIStatus, let ciStatus = pr.ciStatus {
                         CIStatusIcon(
                             status: ciStatus,
                             successCount: pr.checkSuccessCount,
@@ -96,6 +97,7 @@ struct PRRowView: View {
             isDraft: true,
             createdAt: Date(),
             updatedAt: Date(),
+            mergedAt: nil,
             reviewThreads: [
                 ReviewThread(id: "1", isResolved: false, isOutdated: false, path: nil, line: nil, comments: [])
             ],

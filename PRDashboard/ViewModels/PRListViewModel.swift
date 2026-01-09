@@ -132,6 +132,42 @@ final class PRListViewModel: ObservableObject {
         return result
     }
 
+    private var filteredMergedPRs: [PullRequest] {
+        let prs = prList.mergedPullRequests
+
+        guard !searchText.isEmpty else { return prs }
+
+        let query = searchText.lowercased()
+        return prs.filter { pr in
+            pr.title.lowercased().contains(query) ||
+            pr.repoFullName.lowercased().contains(query) ||
+            pr.author.lowercased().contains(query) ||
+            String(pr.number).contains(query)
+        }
+    }
+
+    /// Merged within last 24 hours (rolling window), deduped by PR id.
+    var mergedLast24hPRs: [PullRequest] {
+        let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
+        var seen = Set<Int>()
+        let filtered = filteredMergedPRs.filter { pr in
+            guard let mergedAt = pr.mergedAt else { return false }
+            return mergedAt >= cutoff
+        }.filter { pr in
+            seen.insert(pr.id).inserted
+        }
+
+        return filtered.sorted { ($0.mergedAt ?? $0.updatedAt) > ($1.mergedAt ?? $1.updatedAt) }
+    }
+
+    var groupedMergedLast24hPRs: [(String, [PullRequest])] {
+        groupByRepo(mergedLast24hPRs, sortByMergedDate: true)
+    }
+
+    // Backward compatibility for views still using the old naming.
+    var mergedTodayPRs: [PullRequest] { mergedLast24hPRs }
+    var groupedMergedTodayPRs: [(String, [PullRequest])] { groupedMergedLast24hPRs }
+
     var totalUnresolvedCount: Int {
         prList.totalUnresolvedCount
     }
@@ -206,10 +242,17 @@ final class PRListViewModel: ObservableObject {
 
     // MARK: - Private
 
-    private func groupByRepo(_ prs: [PullRequest]) -> [(String, [PullRequest])] {
+    private func groupByRepo(_ prs: [PullRequest], sortByMergedDate: Bool = false) -> [(String, [PullRequest])] {
         let grouped = Dictionary(grouping: prs) { $0.repoFullName }
         return grouped
-            .map { ($0.key, $0.value.sorted { $0.updatedAt > $1.updatedAt }) }
+            .map { repo, prs in
+                let sorted = prs.sorted {
+                    let lhsDate = sortByMergedDate ? ($0.mergedAt ?? $0.updatedAt) : $0.updatedAt
+                    let rhsDate = sortByMergedDate ? ($1.mergedAt ?? $1.updatedAt) : $1.updatedAt
+                    return lhsDate > rhsDate
+                }
+                return (repo, sorted)
+            }
             .sorted { $0.0 < $1.0 }
     }
 }

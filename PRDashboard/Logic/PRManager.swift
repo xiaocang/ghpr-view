@@ -1,6 +1,9 @@
 import Foundation
 import Combine
 import Network
+import os
+
+private let logger = Logger(subsystem: "com.prdashboard", category: "PRManager")
 
 @MainActor
 protocol PRManagerType: AnyObject {
@@ -203,19 +206,24 @@ final class PRManager: PRManagerType, ObservableObject {
         prList = PRList(
             lastUpdated: prList.lastUpdated,
             pullRequests: prList.pullRequests,
+            mergedPullRequests: prList.mergedPullRequests,
             isLoading: true,
             error: nil
         )
 
         Task { @MainActor in
             do {
-                var prs = try await apiClient.fetchAllPullRequests(username: username)
+                let result = try await apiClient.fetchAllPullRequests(username: username)
+                var prs = result.openPRs
+                var mergedPRs = result.mergedPRs
+
+                logger.info("API returned: \(prs.count) open PRs, \(mergedPRs.count) merged PRs")
 
                 // Filter by configured repositories if any (case-insensitive, supports "org/" prefix match)
                 if !configuration.repositories.isEmpty {
-                    prs = prs.filter { pr in
+                    let repoFilter: (PullRequest) -> Bool = { pr in
                         let repoName = pr.repoFullName.lowercased()
-                        return configuration.repositories.contains { filter in
+                        return self.configuration.repositories.contains { filter in
                             let filterLower = filter.lowercased()
                             if filterLower.hasSuffix("/") {
                                 // Org/author prefix match (e.g., "xiaocang/" matches all repos under xiaocang)
@@ -226,12 +234,18 @@ final class PRManager: PRManagerType, ObservableObject {
                             }
                         }
                     }
+                    prs = prs.filter(repoFilter)
+                    mergedPRs = mergedPRs.filter(repoFilter)
                 }
 
                 // Filter drafts if disabled
                 if !configuration.showDrafts {
                     prs = prs.filter { !$0.isDraft }
+                    // Note: merged PRs are never drafts, but filter anyway for consistency
+                    mergedPRs = mergedPRs.filter { !$0.isDraft }
                 }
+
+                logger.info("After filters: \(prs.count) open PRs, \(mergedPRs.count) merged PRs")
 
                 // Check for changes and notify
                 if configuration.notificationsEnabled {
@@ -244,6 +258,7 @@ final class PRManager: PRManagerType, ObservableObject {
                 let newPRList = PRList(
                     lastUpdated: Date(),
                     pullRequests: prs,
+                    mergedPullRequests: mergedPRs,
                     isLoading: false,
                     error: nil
                 )
@@ -260,6 +275,7 @@ final class PRManager: PRManagerType, ObservableObject {
                     prList = PRList(
                         lastUpdated: cached.lastUpdated,
                         pullRequests: cached.pullRequests,
+                        mergedPullRequests: cached.mergedPullRequests,
                         isLoading: false,
                         error: error  // Still show error to indicate stale data
                     )
@@ -267,6 +283,7 @@ final class PRManager: PRManagerType, ObservableObject {
                     prList = PRList(
                         lastUpdated: prList.lastUpdated,
                         pullRequests: prList.pullRequests,
+                        mergedPullRequests: prList.mergedPullRequests,
                         isLoading: false,
                         error: error
                     )
