@@ -13,6 +13,7 @@ A lightweight macOS menu bar app for tracking your GitHub pull requests and revi
 - **PR Overview** - View your authored PRs and review requests in one place
 - **CI Status** - See CI check status (success/failure/pending) for each PR
 - **Unresolved Comments** - Badge shows unresolved comment count for your authored PRs
+- **Last Commit Time** - Shows when the last commit was pushed (relative for recent, absolute for older)
 - **Secure Authentication** - GitHub Device Flow or Personal Access Token (PAT)
 - **Auto-Refresh** - Configurable refresh interval (1min - 30min), runs in background for notifications
 - **Notifications** - Desktop alerts for new unresolved comments and CI status changes
