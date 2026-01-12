@@ -8,6 +8,17 @@ struct PRRowView: View {
 
     @State private var isHovered = false
 
+    private var timeDisplay: String {
+        let displayDate = pr.lastCommitAt ?? pr.updatedAt
+        let prefix = pr.lastCommitAt == nil ? "~" : ""
+
+        if abs(displayDate.timeIntervalSinceNow) < 24 * 60 * 60 {
+            return prefix + DateFormatters.relativeString(from: displayDate)
+        } else {
+            return prefix + DateFormatters.shortDateTime.string(from: displayDate)
+        }
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             // Author avatar
@@ -36,6 +47,14 @@ struct PRRowView: View {
                 // Author and badges
                 HStack(spacing: 6) {
                     Text(pr.author)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+
+                    Text("·")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+
+                    Text(timeDisplay)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
 
@@ -98,6 +117,7 @@ struct PRRowView: View {
             createdAt: Date(),
             updatedAt: Date(),
             mergedAt: nil,
+            lastCommitAt: Date(),
             reviewThreads: [
                 ReviewThread(id: "1", isResolved: false, isOutdated: false, path: nil, line: nil, comments: [])
             ],

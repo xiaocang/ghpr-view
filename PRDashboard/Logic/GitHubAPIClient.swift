@@ -146,6 +146,7 @@ final class GitHubAPIClient: ObservableObject {
                         commits(last: 1) {
                             nodes {
                                 commit {
+                                    committedDate
                                     statusCheckRollup {
                                         state
                                         contexts(first: 20) {
@@ -247,6 +248,7 @@ final class GitHubAPIClient: ObservableObject {
                         commits(last: 1) {
                             nodes {
                                 commit {
+                                    committedDate
                                     statusCheckRollup {
                                         state
                                         contexts(first: 20) {
@@ -338,8 +340,7 @@ final class GitHubAPIClient: ObservableObject {
     }
 
     private func parseSearchResponse(data: Data, category: PRCategory) throws -> [PullRequest] {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        let decoder = JSONDecoder.githubDecoder
 
         do {
             let response = try decoder.decode(GraphQLResponse.self, from: data)
@@ -366,7 +367,9 @@ final class GitHubAPIClient: ObservableObject {
                 } ?? []
 
                 // Extract CI status and counts from the last commit
-                let statusCheckRollup = node.commits?.nodes.first?.commit.statusCheckRollup
+                let lastCommit = node.commits?.nodes.first?.commit
+                let statusCheckRollup = lastCommit?.statusCheckRollup
+                let lastCommitAt = lastCommit?.committedDate
 
                 // Count check statuses
                 var successCount = 0
@@ -442,6 +445,7 @@ final class GitHubAPIClient: ObservableObject {
                     createdAt: node.createdAt,
                     updatedAt: node.updatedAt,
                     mergedAt: node.mergedAt,
+                    lastCommitAt: lastCommitAt,
                     reviewThreads: reviewThreads,
                     category: category,
                     ciStatus: ciStatus,
@@ -456,8 +460,7 @@ final class GitHubAPIClient: ObservableObject {
     }
 
     private func parseCombinedResponse(data: Data, username: String) throws -> CombinedPRResult {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        let decoder = JSONDecoder.githubDecoder
 
         do {
             let response = try decoder.decode(CombinedGraphQLResponse.self, from: data)
@@ -548,7 +551,9 @@ final class GitHubAPIClient: ObservableObject {
             } ?? []
 
             // Extract CI status and counts from the last commit
-            let statusCheckRollup = node.commits?.nodes.first?.commit.statusCheckRollup
+            let lastCommit = node.commits?.nodes.first?.commit
+            let statusCheckRollup = lastCommit?.statusCheckRollup
+            let lastCommitAt = lastCommit?.committedDate
 
             // Count check statuses
             var successCount = 0
@@ -636,6 +641,7 @@ final class GitHubAPIClient: ObservableObject {
                 createdAt: node.createdAt,
                 updatedAt: node.updatedAt,
                 mergedAt: node.mergedAt,
+                lastCommitAt: lastCommitAt,
                 reviewThreads: reviewThreads,
                 category: resolvedCategory,
                 ciStatus: ciStatus,
@@ -741,6 +747,7 @@ private struct GraphQLResponse: Decodable {
     }
 
     struct CommitInfo: Decodable {
+        let committedDate: Date?
         let statusCheckRollup: StatusCheckRollup?
     }
 
@@ -840,6 +847,7 @@ private struct CombinedGraphQLResponse: Decodable {
     }
 
     struct CommitInfo: Decodable {
+        let committedDate: Date?
         let statusCheckRollup: StatusCheckRollup?
     }
 
