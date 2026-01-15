@@ -7,7 +7,8 @@ set -e
 
 PROJECT="PRDashboard.xcodeproj"
 SCHEME="PRDashboard"
-CONFIG="Debug"
+# CONFIG="Debug"
+CONFIG="Release"
 BUILD_DIR="build/DerivedData"
 
 # Your development team ID (from Xcode → Target → Signing & Capabilities)
@@ -42,9 +43,16 @@ echo ""
 echo "Code signing info:"
 codesign -dv "$APP_PATH" 2>&1 | grep -E "TeamIdentifier|Signature"
 
+# Install to /Applications
+echo ""
+echo "Installing to /Applications..."
+rm -rf /Applications/PRDashboard.app
+cp -R "$APP_PATH" /Applications/
+echo "Installed: /Applications/PRDashboard.app"
+
 # Run if --run flag is passed
 if [ "$1" = "--run" ]; then
     echo ""
     echo "Starting PRDashboard..."
-    open "$APP_PATH"
+    open /Applications/PRDashboard.app
 fi

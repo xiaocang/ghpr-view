@@ -48,6 +48,16 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
     private func setupMenu() -> NSMenu {
         let menu = NSMenu()
+
+        // Version info
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
+        let versionItem = NSMenuItem(title: "PR Dashboard v\(version) (\(build))", action: nil, keyEquivalent: "")
+        versionItem.isEnabled = false
+        menu.addItem(versionItem)
+
+        menu.addItem(NSMenuItem.separator())
+
         let quitItem = NSMenuItem(title: "Quit PR Dashboard", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
