@@ -16,6 +16,7 @@ enum CIStatus: String, Codable {
     case pending = "PENDING"
     case failure = "FAILURE"
     case expected = "EXPECTED"
+    case unknown = "UNKNOWN"  // GitHub says FAILURE but we reached limit without finding failures
 }
 
 struct PullRequest: Identifiable, Codable, Equatable {
@@ -35,10 +36,11 @@ struct PullRequest: Identifiable, Codable, Equatable {
     let lastCommitAt: Date?
     let reviewThreads: [ReviewThread]
     let category: PRCategory
-    let ciStatus: CIStatus?
-    let checkSuccessCount: Int
-    let checkFailureCount: Int
-    let checkPendingCount: Int
+    var ciStatus: CIStatus?
+    var checkSuccessCount: Int
+    var checkFailureCount: Int
+    var checkPendingCount: Int
+    var githubCIState: String?  // Raw state from GitHub: "SUCCESS", "FAILURE", "PENDING", etc.
 
     var checkTotalCount: Int {
         checkSuccessCount + checkFailureCount + checkPendingCount

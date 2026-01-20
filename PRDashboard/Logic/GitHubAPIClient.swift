@@ -46,6 +46,7 @@ enum APIError: LocalizedError {
 }
 
 final class GitHubAPIClient: ObservableObject {
+    private static let maxCIContextsToFetch = 200
     private let graphQLURL = URL(string: "https://api.github.com/graphql")!
     private var token: String
     private let session: URLSession
@@ -79,7 +80,7 @@ final class GitHubAPIClient: ObservableObject {
         // Combined query using GraphQL aliases - single API call instead of 4
         let query = buildCombinedQuery(username: username)
         let responseData = try await executeGraphQL(query: query)
-        return try parseCombinedResponse(data: responseData, username: username)
+        return try await parseCombinedResponse(data: responseData, username: username)
     }
 
     func validateToken() async throws -> Bool {
@@ -97,6 +98,103 @@ final class GitHubAPIClient: ObservableObject {
         } catch APIError.unauthorized {
             return false
         }
+    }
+
+    /// Fetches additional CI contexts for a commit when pagination is needed
+    func fetchAdditionalCIContexts(owner: String, repo: String, commitOid: String, after: String) async throws -> CIContextsResult {
+        let query = """
+        query {
+            repository(owner: "\(owner)", name: "\(repo)") {
+                object(oid: "\(commitOid)") {
+                    ... on Commit {
+                        statusCheckRollup {
+                            contexts(first: 100, after: "\(after)") {
+                                nodes {
+                                    ... on CheckRun {
+                                        name
+                                        conclusion
+                                    }
+                                    ... on StatusContext {
+                                        context
+                                        state
+                                    }
+                                }
+                                pageInfo {
+                                    hasNextPage
+                                    endCursor
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """
+
+        let responseData = try await executeGraphQL(query: query)
+        return try parseCIContextsResponse(data: responseData)
+    }
+
+    struct CIContextsResult {
+        let contexts: [CIContextNode]
+        let hasNextPage: Bool
+        let endCursor: String?
+    }
+
+    struct CIContextNode {
+        let name: String?
+        let conclusion: String?
+        let state: String?
+        let context: String?
+    }
+
+    private func parseCIContextsResponse(data: Data) throws -> CIContextsResult {
+        struct Response: Decodable {
+            let data: DataContainer
+            struct DataContainer: Decodable {
+                let repository: RepositoryContainer?
+            }
+            struct RepositoryContainer: Decodable {
+                let object: ObjectContainer?
+            }
+            struct ObjectContainer: Decodable {
+                let statusCheckRollup: StatusCheckRollup?
+            }
+            struct StatusCheckRollup: Decodable {
+                let contexts: ContextsContainer?
+            }
+            struct ContextsContainer: Decodable {
+                let nodes: [ContextNode]
+                let pageInfo: PageInfo?
+            }
+            struct PageInfo: Decodable {
+                let hasNextPage: Bool
+                let endCursor: String?
+            }
+            struct ContextNode: Decodable {
+                let name: String?
+                let conclusion: String?
+                let state: String?
+                let context: String?
+            }
+        }
+
+        let decoder = JSONDecoder.githubDecoder
+        let response = try decoder.decode(Response.self, from: data)
+
+        guard let contexts = response.data.repository?.object?.statusCheckRollup?.contexts else {
+            return CIContextsResult(contexts: [], hasNextPage: false, endCursor: nil)
+        }
+
+        let ciContexts = contexts.nodes.map { node in
+            CIContextNode(name: node.name, conclusion: node.conclusion, state: node.state, context: node.context)
+        }
+
+        return CIContextsResult(
+            contexts: ciContexts,
+            hasNextPage: contexts.pageInfo?.hasNextPage ?? false,
+            endCursor: contexts.pageInfo?.endCursor
+        )
     }
 
     // MARK: - Private
@@ -146,18 +244,24 @@ final class GitHubAPIClient: ObservableObject {
                         commits(last: 1) {
                             nodes {
                                 commit {
+                                    oid
                                     committedDate
                                     statusCheckRollup {
                                         state
                                         contexts(first: 20) {
                                             nodes {
                                                 ... on CheckRun {
+                                                    name
                                                     conclusion
                                                 }
                                                 ... on StatusContext {
                                                     context
                                                     state
                                                 }
+                                            }
+                                            pageInfo {
+                                                hasNextPage
+                                                endCursor
                                             }
                                         }
                                     }
@@ -248,18 +352,24 @@ final class GitHubAPIClient: ObservableObject {
                         commits(last: 1) {
                             nodes {
                                 commit {
+                                    oid
                                     committedDate
                                     statusCheckRollup {
                                         state
                                         contexts(first: 20) {
                                             nodes {
                                                 ... on CheckRun {
+                                                    name
                                                     conclusion
                                                 }
                                                 ... on StatusContext {
                                                     context
                                                     state
                                                 }
+                                            }
+                                            pageInfo {
+                                                hasNextPage
+                                                endCursor
                                             }
                                         }
                                     }
@@ -377,9 +487,20 @@ final class GitHubAPIClient: ObservableObject {
                 var pendingCount = 0
 
                 if let contexts = statusCheckRollup?.contexts?.nodes {
-                    for context in contexts {
+                    // Track seen CheckRun names to deduplicate re-runs (only count latest)
+                    // Reverse the array because GitHub returns oldest first, but we want newest
+                    var seenCheckNames = Set<String>()
+
+                    for context in contexts.reversed() {
                         // CheckRun uses conclusion, StatusContext uses state
                         if let conclusion = context.conclusion {
+                            // Deduplicate CheckRuns by name (only count latest run)
+                            if let name = context.name {
+                                if seenCheckNames.contains(name) {
+                                    continue  // Skip older run of same check
+                                }
+                                seenCheckNames.insert(name)
+                            }
                             switch conclusion.uppercased() {
                             case "SUCCESS":
                                 successCount += 1
@@ -410,13 +531,21 @@ final class GitHubAPIClient: ObservableObject {
                                 break
                             }
                         } else {
-                            // No conclusion or state means in progress
+                            // CheckRun with no conclusion means in progress
+                            // Deduplicate by name if available
+                            if let name = context.name {
+                                if seenCheckNames.contains(name) {
+                                    continue
+                                }
+                                seenCheckNames.insert(name)
+                            }
                             pendingCount += 1
                         }
                     }
                 }
 
                 // Derive CI status from our counts (not GitHub's rollup which may include excluded checks)
+                let rollupState = statusCheckRollup?.state
                 let ciStatus: CIStatus?
                 if failureCount > 0 {
                     ciStatus = .failure
@@ -451,7 +580,8 @@ final class GitHubAPIClient: ObservableObject {
                     ciStatus: ciStatus,
                     checkSuccessCount: successCount,
                     checkFailureCount: failureCount,
-                    checkPendingCount: pendingCount
+                    checkPendingCount: pendingCount,
+                    githubCIState: rollupState
                 )
             }
         } catch {
@@ -459,7 +589,18 @@ final class GitHubAPIClient: ObservableObject {
         }
     }
 
-    private func parseCombinedResponse(data: Data, username: String) throws -> CombinedPRResult {
+    /// Info needed to fetch additional CI contexts for a PR
+    private struct CIEnrichmentInfo {
+        let prId: Int
+        let owner: String
+        let repo: String
+        let commitOid: String
+        let endCursor: String
+        let rollupState: String
+        let initialContextCount: Int  // Number of contexts already fetched in first page
+    }
+
+    private func parseCombinedResponse(data: Data, username: String) async throws -> CombinedPRResult {
         let decoder = JSONDecoder.githubDecoder
 
         do {
@@ -472,23 +613,62 @@ final class GitHubAPIClient: ObservableObject {
                 logger.debug("mergedInvolved[\(idx)]: #\(node.number) databaseId=\(node.databaseId.map { String($0) } ?? "nil") state=\(node.state) mergedAt=\(node.mergedAt.map { String(describing: $0) } ?? "nil")")
             }
 
+            // Collect enrichment info from all nodes
+            var enrichmentInfos: [CIEnrichmentInfo] = []
+
             // Parse authored PRs
-            let authoredPRs = parseNodes(response.data.authored.nodes, category: .authored)
+            var authoredPRs = parseNodes(response.data.authored.nodes, category: .authored, enrichmentInfos: &enrichmentInfos)
 
             // Parse review requested PRs
-            let reviewRequestedPRs = parseNodes(response.data.reviewRequested.nodes, category: .reviewRequest)
+            var reviewRequestedPRs = parseNodes(response.data.reviewRequested.nodes, category: .reviewRequest, enrichmentInfos: &enrichmentInfos)
 
             // Parse reviewed-by PRs (PRs user has already reviewed)
-            let reviewedByPRs = parseNodes(response.data.reviewedBy.nodes, category: .reviewRequest)
+            var reviewedByPRs = parseNodes(response.data.reviewedBy.nodes, category: .reviewRequest, enrichmentInfos: &enrichmentInfos)
 
             // Parse merged PRs where user is involved (author or reviewer)
             // Determine category based on whether user is author
-            let mergedInvolvedPRs = parseNodes(
+            var mergedInvolvedPRs = parseNodes(
                 response.data.mergedInvolved.nodes,
                 category: .reviewRequest,
-                usernameForAuthoredCheck: username
+                usernameForAuthoredCheck: username,
+                enrichmentInfos: &enrichmentInfos
             )
             logger.info("Parsed mergedInvolvedPRs count: \(mergedInvolvedPRs.count)")
+
+            // Enrich PRs that have rollup state FAILURE but we didn't find failures in first page
+            if !enrichmentInfos.isEmpty {
+                logger.info("Need to fetch additional CI contexts for \(enrichmentInfos.count) PRs")
+                let enrichedCounts = await fetchAllAdditionalCIContexts(enrichmentInfos: enrichmentInfos)
+
+                // Update PR counts with enriched data (add to existing counts from first page)
+                func updatePRs(_ prs: inout [PullRequest]) {
+                    prs = prs.map { pr in
+                        guard let counts = enrichedCounts[pr.id] else { return pr }
+                        var updated = pr
+                        updated.checkSuccessCount += counts.success
+                        updated.checkFailureCount += counts.failure
+                        updated.checkPendingCount += counts.pending
+                        // Re-derive CI status based on total counts
+                        if updated.checkFailureCount > 0 {
+                            updated.ciStatus = .failure
+                        } else if updated.checkPendingCount > 0 {
+                            updated.ciStatus = .pending
+                        } else if updated.checkSuccessCount > 0 {
+                            updated.ciStatus = .success
+                        } else if counts.limitReached && updated.githubCIState?.uppercased() == "FAILURE" {
+                            // GitHub says FAILURE but we hit limit without finding failures
+                            updated.ciStatus = .unknown
+                            logger.info("PR \(updated.id) set to unknown: GitHub says FAILURE but limit reached without finding failures")
+                        }
+                        return updated
+                    }
+                }
+
+                updatePRs(&authoredPRs)
+                updatePRs(&reviewRequestedPRs)
+                updatePRs(&reviewedByPRs)
+                updatePRs(&mergedInvolvedPRs)
+            }
 
             // Combine review requested and reviewed-by, deduplicating by ID
             var reviewPRsById: [Int: PullRequest] = [:]
@@ -522,10 +702,110 @@ final class GitHubAPIClient: ObservableObject {
         }
     }
 
+    private struct CICounts {
+        var success: Int
+        var failure: Int
+        var pending: Int
+        var limitReached: Bool
+    }
+
+    /// Fetches additional CI contexts for all PRs that need enrichment
+    private func fetchAllAdditionalCIContexts(enrichmentInfos: [CIEnrichmentInfo]) async -> [Int: CICounts] {
+        var results: [Int: CICounts] = [:]
+
+        for info in enrichmentInfos {
+            do {
+                let counts = try await fetchFullCIContexts(
+                    owner: info.owner,
+                    repo: info.repo,
+                    commitOid: info.commitOid,
+                    startCursor: info.endCursor,
+                    initialCount: info.initialContextCount
+                )
+                results[info.prId] = counts
+                logger.info("Enriched CI for PR \(info.prId): \(counts.success) success, \(counts.failure) failure, \(counts.pending) pending, limitReached=\(counts.limitReached)")
+            } catch {
+                logger.error("Failed to fetch additional CI contexts for PR \(info.prId): \(error.localizedDescription)")
+            }
+        }
+
+        return results
+    }
+
+    /// Fetches all remaining CI contexts for a commit, paginating as needed
+    /// Returns counts and whether the limit was reached before exhausting all pages
+    private func fetchFullCIContexts(owner: String, repo: String, commitOid: String, startCursor: String, initialCount: Int) async throws -> CICounts {
+        var counts = CICounts(success: 0, failure: 0, pending: 0, limitReached: false)
+        var seenCheckNames = Set<String>()
+        var cursor: String? = startCursor
+        let excludeFilter = Self.loadCIStatusExcludeFilter()
+        var totalFetched = initialCount
+
+        while let currentCursor = cursor {
+            let result = try await fetchAdditionalCIContexts(owner: owner, repo: repo, commitOid: commitOid, after: currentCursor)
+            totalFetched += result.contexts.count
+
+            for context in result.contexts.reversed() {
+                if let conclusion = context.conclusion {
+                    if let name = context.name {
+                        if seenCheckNames.contains(name) { continue }
+                        seenCheckNames.insert(name)
+                    }
+                    switch conclusion.uppercased() {
+                    case "SUCCESS":
+                        counts.success += 1
+                    case "FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE":
+                        counts.failure += 1
+                    case "CANCELLED", "SKIPPED", "NEUTRAL", "STALE":
+                        break
+                    default:
+                        counts.pending += 1
+                    }
+                } else if let state = context.state {
+                    if !excludeFilter.isEmpty,
+                       let contextName = context.context,
+                       contextName.lowercased().contains(excludeFilter.lowercased()) {
+                        continue
+                    }
+                    switch state.uppercased() {
+                    case "SUCCESS":
+                        counts.success += 1
+                    case "FAILURE", "ERROR":
+                        counts.failure += 1
+                    case "PENDING", "EXPECTED":
+                        counts.pending += 1
+                    default:
+                        break
+                    }
+                } else {
+                    if let name = context.name {
+                        if seenCheckNames.contains(name) { continue }
+                        seenCheckNames.insert(name)
+                    }
+                    counts.pending += 1
+                }
+            }
+
+            // Check if we've reached the limit
+            if totalFetched >= Self.maxCIContextsToFetch {
+                if result.hasNextPage {
+                    logger.warning("Reached CI context limit (\(Self.maxCIContextsToFetch)) for \(owner)/\(repo)@\(commitOid), more pages available")
+                    counts.limitReached = true
+                }
+                break
+            }
+
+            cursor = result.hasNextPage ? result.endCursor : nil
+        }
+
+        return counts
+    }
+
     private func parseNodes(
         _ nodes: [CombinedGraphQLResponse.PRNode],
         category: PRCategory,
-        usernameForAuthoredCheck: String? = nil
+        usernameForAuthoredCheck: String? = nil,
+        enrichmentInfos: inout [CIEnrichmentInfo]
     ) -> [PullRequest] {
         let usernameLower = usernameForAuthoredCheck?.lowercased()
         return nodes.compactMap { node in
@@ -561,9 +841,20 @@ final class GitHubAPIClient: ObservableObject {
             var pendingCount = 0
 
             if let contexts = statusCheckRollup?.contexts?.nodes {
-                for context in contexts {
+                // Track seen CheckRun names to deduplicate re-runs (only count latest)
+                // Reverse the array because GitHub returns oldest first, but we want newest
+                var seenCheckNames = Set<String>()
+
+                for context in contexts.reversed() {
                     // CheckRun uses conclusion, StatusContext uses state
                     if let conclusion = context.conclusion {
+                        // Deduplicate CheckRuns by name (only count latest run)
+                        if let name = context.name {
+                            if seenCheckNames.contains(name) {
+                                continue  // Skip older run of same check
+                            }
+                            seenCheckNames.insert(name)
+                        }
                         switch conclusion.uppercased() {
                         case "SUCCESS":
                             successCount += 1
@@ -594,10 +885,38 @@ final class GitHubAPIClient: ObservableObject {
                             break
                         }
                     } else {
-                        // No conclusion or state means in progress
+                        // CheckRun with no conclusion means in progress
+                        // Deduplicate by name if available
+                        if let name = context.name {
+                            if seenCheckNames.contains(name) {
+                                continue
+                            }
+                            seenCheckNames.insert(name)
+                        }
                         pendingCount += 1
                     }
                 }
+            }
+
+            // Check if we need to fetch more CI contexts:
+            // - Rollup state is FAILURE but we didn't find any failures in the first page
+            // - And there are more pages to fetch
+            let rollupState = statusCheckRollup?.state ?? ""
+            let initialContextCount = statusCheckRollup?.contexts?.nodes.count ?? 0
+            if rollupState.uppercased() == "FAILURE" && failureCount == 0,
+               let pageInfo = statusCheckRollup?.contexts?.pageInfo,
+               pageInfo.hasNextPage,
+               let endCursor = pageInfo.endCursor,
+               let commitOid = lastCommit?.oid {
+                enrichmentInfos.append(CIEnrichmentInfo(
+                    prId: databaseId,
+                    owner: node.repository.owner.login,
+                    repo: node.repository.name,
+                    commitOid: commitOid,
+                    endCursor: endCursor,
+                    rollupState: rollupState,
+                    initialContextCount: initialContextCount
+                ))
             }
 
             // Derive CI status from our counts (not GitHub's rollup which may include excluded checks)
@@ -647,7 +966,8 @@ final class GitHubAPIClient: ObservableObject {
                 ciStatus: ciStatus,
                 checkSuccessCount: successCount,
                 checkFailureCount: failureCount,
-                checkPendingCount: pendingCount
+                checkPendingCount: pendingCount,
+                githubCIState: rollupState.isEmpty ? nil : rollupState
             )
         }
     }
@@ -747,6 +1067,7 @@ private struct GraphQLResponse: Decodable {
     }
 
     struct CommitInfo: Decodable {
+        let oid: String?
         let committedDate: Date?
         let statusCheckRollup: StatusCheckRollup?
     }
@@ -758,10 +1079,17 @@ private struct GraphQLResponse: Decodable {
 
     struct ContextsContainer: Decodable {
         let nodes: [ContextNode]
+        let pageInfo: PageInfoContext?
+    }
+
+    struct PageInfoContext: Decodable {
+        let hasNextPage: Bool
+        let endCursor: String?
     }
 
     struct ContextNode: Decodable {
-        // CheckRun uses "conclusion", StatusContext uses "state" and "context"
+        // CheckRun uses "name" and "conclusion", StatusContext uses "state" and "context"
+        let name: String?        // CheckRun name (e.g., "build", "test")
         let conclusion: String?  // SUCCESS, FAILURE, NEUTRAL, CANCELLED, SKIPPED, TIMED_OUT, ACTION_REQUIRED, null (in progress)
         let state: String?       // PENDING, SUCCESS, FAILURE, ERROR, EXPECTED
         let context: String?     // StatusContext name (e.g., "ci/build", "code-review/reviewable")
@@ -847,6 +1175,7 @@ private struct CombinedGraphQLResponse: Decodable {
     }
 
     struct CommitInfo: Decodable {
+        let oid: String?
         let committedDate: Date?
         let statusCheckRollup: StatusCheckRollup?
     }
@@ -858,9 +1187,16 @@ private struct CombinedGraphQLResponse: Decodable {
 
     struct ContextsContainer: Decodable {
         let nodes: [ContextNode]
+        let pageInfo: PageInfoContext?
+    }
+
+    struct PageInfoContext: Decodable {
+        let hasNextPage: Bool
+        let endCursor: String?
     }
 
     struct ContextNode: Decodable {
+        let name: String?
         let conclusion: String?
         let state: String?
         let context: String?

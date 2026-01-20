@@ -31,6 +31,8 @@ struct CIStatusIcon: View {
             return "clock.circle.fill"
         case .expected:
             return "circle.dashed"
+        case .unknown:
+            return "questionmark.circle.fill"
         }
     }
 
@@ -44,6 +46,8 @@ struct CIStatusIcon: View {
             return .yellow
         case .expected:
             return .secondary
+        case .unknown:
+            return .orange
         }
     }
 
@@ -73,6 +77,10 @@ struct CIStatusIcon: View {
         HStack {
             CIStatusIcon(status: .expected)
             Text("Expected")
+        }
+        HStack {
+            CIStatusIcon(status: .unknown, successCount: 10, failureCount: 0, pendingCount: 0)
+            Text("Unknown (limit reached)")
         }
     }
     .padding()
