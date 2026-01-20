@@ -52,7 +52,8 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         // Version info
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
-        let versionItem = NSMenuItem(title: "PR Dashboard v\(version) (\(build))", action: nil, keyEquivalent: "")
+        let gitVersion = GitVersion.displayString
+        let versionItem = NSMenuItem(title: "PR Dashboard v\(version) (\(build)) \(gitVersion)", action: nil, keyEquivalent: "")
         versionItem.isEnabled = false
         menu.addItem(versionItem)
 
