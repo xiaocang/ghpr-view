@@ -268,6 +268,12 @@ final class GitHubAPIClient: ObservableObject {
                                 }
                             }
                         }
+                        reviews(author: "\(username)", last: 1) {
+                            nodes {
+                                state
+                                submittedAt
+                            }
+                        }
                     }
                 }
         """
@@ -581,7 +587,9 @@ final class GitHubAPIClient: ObservableObject {
                     checkSuccessCount: successCount,
                     checkFailureCount: failureCount,
                     checkPendingCount: pendingCount,
-                    githubCIState: rollupState
+                    githubCIState: rollupState,
+                    myLastReviewState: nil,
+                    myLastReviewAt: nil
                 )
             }
         } catch {
@@ -946,6 +954,11 @@ final class GitHubAPIClient: ObservableObject {
                 resolvedCategory = category
             }
 
+            // Extract my review data
+            let lastReview = node.reviews?.nodes.first
+            let myLastReviewState: ReviewState? = lastReview.flatMap { ReviewState(rawValue: $0.state) }
+            let myLastReviewAt: Date? = lastReview?.submittedAt
+
             return PullRequest(
                 id: databaseId,
                 number: node.number,
@@ -967,7 +980,9 @@ final class GitHubAPIClient: ObservableObject {
                 checkSuccessCount: successCount,
                 checkFailureCount: failureCount,
                 checkPendingCount: pendingCount,
-                githubCIState: rollupState.isEmpty ? nil : rollupState
+                githubCIState: rollupState.isEmpty ? nil : rollupState,
+                myLastReviewState: myLastReviewState,
+                myLastReviewAt: myLastReviewAt
             )
         }
     }
@@ -1126,6 +1141,7 @@ private struct CombinedGraphQLResponse: Decodable {
         let repository: Repository
         let reviewThreads: ReviewThreadsContainer?
         let commits: CommitsContainer?
+        let reviews: ReviewsContainer?
     }
 
     struct Author: Decodable {
@@ -1200,5 +1216,14 @@ private struct CombinedGraphQLResponse: Decodable {
         let conclusion: String?
         let state: String?
         let context: String?
+    }
+
+    struct ReviewsContainer: Decodable {
+        let nodes: [ReviewNode]
+    }
+
+    struct ReviewNode: Decodable {
+        let state: String
+        let submittedAt: Date?
     }
 }

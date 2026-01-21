@@ -19,6 +19,23 @@ enum CIStatus: String, Codable {
     case unknown = "UNKNOWN"  // GitHub says FAILURE but we reached limit without finding failures
 }
 
+/// GitHub review state from API
+enum ReviewState: String, Codable {
+    case approved = "APPROVED"
+    case changesRequested = "CHANGES_REQUESTED"
+    case commented = "COMMENTED"
+    case pending = "PENDING"
+    case dismissed = "DISMISSED"
+}
+
+/// Display status for my review on review-requested PRs
+enum MyReviewStatus: String, Codable {
+    case waiting           // No review or COMMENTED/PENDING/DISMISSED
+    case changesRequested  // CHANGES_REQUESTED, not resolved
+    case changesResolved   // CHANGES_REQUESTED but newer commit pushed
+    case approved          // APPROVED
+}
+
 struct PullRequest: Identifiable, Codable, Equatable {
     let id: Int
     let number: Int
@@ -41,6 +58,8 @@ struct PullRequest: Identifiable, Codable, Equatable {
     var checkFailureCount: Int
     var checkPendingCount: Int
     var githubCIState: String?  // Raw state from GitHub: "SUCCESS", "FAILURE", "PENDING", etc.
+    var myLastReviewState: ReviewState?
+    var myLastReviewAt: Date?
 
     var checkTotalCount: Int {
         checkSuccessCount + checkFailureCount + checkPendingCount
@@ -52,6 +71,24 @@ struct PullRequest: Identifiable, Codable, Equatable {
 
     var repoFullName: String {
         "\(repositoryOwner)/\(repositoryName)"
+    }
+
+    /// Computed review status for review-requested PRs (returns nil for authored PRs)
+    var myReviewStatus: MyReviewStatus? {
+        guard category == .reviewRequest else { return nil }
+        guard let state = myLastReviewState else { return .waiting }
+
+        switch state {
+        case .approved:
+            return .approved
+        case .changesRequested:
+            return .changesRequested
+        case .dismissed:
+            // DISMISSED means my review was resolved/dismissed by author or others
+            return .changesResolved
+        case .commented, .pending:
+            return .waiting
+        }
     }
 
     static func == (lhs: PullRequest, rhs: PullRequest) -> Bool {

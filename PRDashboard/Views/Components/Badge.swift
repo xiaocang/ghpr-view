@@ -30,12 +30,70 @@ struct DraftBadge: View {
     }
 }
 
+struct MyReviewStatusBadge: View {
+    let status: MyReviewStatus
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Text(emoji)
+                .font(.system(size: 11))
+            Text(abbreviation)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(textColor)
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(backgroundColor)
+        .clipShape(Capsule())
+    }
+
+    private var emoji: String {
+        switch status {
+        case .waiting: return "⏳"
+        case .changesRequested: return "🟥"
+        case .changesResolved: return "🟨"
+        case .approved: return "✅"
+        }
+    }
+
+    private var abbreviation: String {
+        switch status {
+        case .waiting: return "W"
+        case .changesRequested: return "CR-"
+        case .changesResolved: return "CR+"
+        case .approved: return "A"
+        }
+    }
+
+    private var textColor: Color {
+        switch status {
+        case .waiting: return .secondary
+        case .changesRequested: return .red
+        case .changesResolved: return .orange
+        case .approved: return .green
+        }
+    }
+
+    private var backgroundColor: Color {
+        switch status {
+        case .waiting: return Color.secondary.opacity(0.15)
+        case .changesRequested: return Color.red.opacity(0.15)
+        case .changesResolved: return Color.orange.opacity(0.15)
+        case .approved: return Color.green.opacity(0.15)
+        }
+    }
+}
+
 #Preview {
     VStack(spacing: 10) {
         Badge(count: 5)
         Badge(count: 99)
         Badge(count: 100)
         DraftBadge()
+        MyReviewStatusBadge(status: .waiting)
+        MyReviewStatusBadge(status: .changesRequested)
+        MyReviewStatusBadge(status: .changesResolved)
+        MyReviewStatusBadge(status: .approved)
     }
     .padding()
 }
