@@ -274,6 +274,18 @@ final class GitHubAPIClient: ObservableObject {
                                 submittedAt
                             }
                         }
+                        timelineItems(last: 10, itemTypes: [REVIEW_REQUESTED_EVENT]) {
+                            nodes {
+                                ... on ReviewRequestedEvent {
+                                    createdAt
+                                    requestedReviewer {
+                                        ... on User {
+                                            login
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
         """
@@ -589,7 +601,9 @@ final class GitHubAPIClient: ObservableObject {
                     checkPendingCount: pendingCount,
                     githubCIState: rollupState,
                     myLastReviewState: nil,
-                    myLastReviewAt: nil
+                    myLastReviewAt: nil,
+                    reviewRequestedAt: nil,
+                    myThreadsAllResolved: false
                 )
             }
         } catch {
@@ -959,6 +973,23 @@ final class GitHubAPIClient: ObservableObject {
             let myLastReviewState: ReviewState? = lastReview.flatMap { ReviewState(rawValue: $0.state) }
             let myLastReviewAt: Date? = lastReview?.submittedAt
 
+            // Extract the most recent review request for the current user
+            let reviewRequestedAt: Date? = node.timelineItems?.nodes
+                .filter { $0.requestedReviewer?.login?.lowercased() == usernameLower }
+                .compactMap { $0.createdAt }
+                .max()
+
+            // Check if all threads started by user are resolved
+            let myThreadsAllResolved: Bool = {
+                guard let usernameLower else { return false }
+                let myThreads = reviewThreads.filter { thread in
+                    thread.comments.first?.author.lowercased() == usernameLower
+                }
+                // If no threads started by user, don't consider it "resolved" (vacuously true would be misleading)
+                // Only return true if user has threads AND all are resolved
+                return !myThreads.isEmpty && myThreads.allSatisfy { $0.isResolved }
+            }()
+
             return PullRequest(
                 id: databaseId,
                 number: node.number,
@@ -982,7 +1013,9 @@ final class GitHubAPIClient: ObservableObject {
                 checkPendingCount: pendingCount,
                 githubCIState: rollupState.isEmpty ? nil : rollupState,
                 myLastReviewState: myLastReviewState,
-                myLastReviewAt: myLastReviewAt
+                myLastReviewAt: myLastReviewAt,
+                reviewRequestedAt: reviewRequestedAt,
+                myThreadsAllResolved: myThreadsAllResolved
             )
         }
     }
@@ -1142,6 +1175,7 @@ private struct CombinedGraphQLResponse: Decodable {
         let reviewThreads: ReviewThreadsContainer?
         let commits: CommitsContainer?
         let reviews: ReviewsContainer?
+        let timelineItems: TimelineItemsContainer?
     }
 
     struct Author: Decodable {
@@ -1225,5 +1259,18 @@ private struct CombinedGraphQLResponse: Decodable {
     struct ReviewNode: Decodable {
         let state: String
         let submittedAt: Date?
+    }
+
+    struct TimelineItemsContainer: Decodable {
+        let nodes: [TimelineItemNode]
+    }
+
+    struct TimelineItemNode: Decodable {
+        let createdAt: Date?
+        let requestedReviewer: RequestedReviewer?
+    }
+
+    struct RequestedReviewer: Decodable {
+        let login: String?
     }
 }

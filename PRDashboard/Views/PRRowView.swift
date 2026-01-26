@@ -132,7 +132,9 @@ struct PRRowView: View {
                 checkFailureCount: 2,
                 checkPendingCount: 0,
                 myLastReviewState: nil,
-                myLastReviewAt: nil
+                myLastReviewAt: nil,
+                reviewRequestedAt: nil,
+                myThreadsAllResolved: false
             ),
             onOpen: {},
             onCopyURL: {}
@@ -160,7 +162,9 @@ struct PRRowView: View {
                 checkFailureCount: 0,
                 checkPendingCount: 0,
                 myLastReviewState: .changesRequested,
-                myLastReviewAt: Date().addingTimeInterval(-3600)
+                myLastReviewAt: Date().addingTimeInterval(-3600),
+                reviewRequestedAt: nil,
+                myThreadsAllResolved: false
             ),
             onOpen: {},
             onCopyURL: {}

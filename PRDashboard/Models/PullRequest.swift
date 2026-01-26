@@ -60,6 +60,8 @@ struct PullRequest: Identifiable, Codable, Equatable {
     var githubCIState: String?  // Raw state from GitHub: "SUCCESS", "FAILURE", "PENDING", etc.
     var myLastReviewState: ReviewState?
     var myLastReviewAt: Date?
+    var reviewRequestedAt: Date?
+    var myThreadsAllResolved: Bool
 
     var checkTotalCount: Int {
         checkSuccessCount + checkFailureCount + checkPendingCount
@@ -82,6 +84,22 @@ struct PullRequest: Identifiable, Codable, Equatable {
         case .approved:
             return .approved
         case .changesRequested:
+            // Condition 1: All my threads are resolved
+            if myThreadsAllResolved {
+                return .changesResolved
+            }
+            // Condition 2: New commit pushed after our review
+            if let reviewedAt = myLastReviewAt,
+               let commitAt = lastCommitAt,
+               commitAt > reviewedAt {
+                return .changesResolved
+            }
+            // Condition 3: Re-requested for review after our last review
+            if let requestedAt = reviewRequestedAt,
+               let reviewedAt = myLastReviewAt,
+               requestedAt > reviewedAt {
+                return .changesResolved
+            }
             return .changesRequested
         case .dismissed:
             // DISMISSED means my review was resolved/dismissed by author or others
