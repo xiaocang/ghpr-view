@@ -148,7 +148,8 @@ struct MainView: View {
                     pr: pr,
                     onOpen: { viewModel.openPR(pr) },
                     onCopyURL: { viewModel.copyURL(pr) },
-                    showCIStatus: showCIStatus
+                    showCIStatus: showCIStatus,
+                    showMyReviewStatus: viewModel.configuration.showMyReviewStatus
                 )
             }
         }

@@ -5,6 +5,7 @@ struct PRRowView: View {
     let onOpen: () -> Void
     let onCopyURL: () -> Void
     var showCIStatus: Bool = true
+    var showMyReviewStatus: Bool = false
 
     @State private var isHovered = false
 
@@ -62,7 +63,7 @@ struct PRRowView: View {
                         DraftBadge()
                     }
 
-                    if let reviewStatus = pr.myReviewStatus {
+                    if showMyReviewStatus, let reviewStatus = pr.myReviewStatus {
                         MyReviewStatusBadge(status: reviewStatus)
                     }
 
@@ -167,7 +168,8 @@ struct PRRowView: View {
                 myThreadsAllResolved: false
             ),
             onOpen: {},
-            onCopyURL: {}
+            onCopyURL: {},
+            showMyReviewStatus: true
         )
     }
     .frame(width: 350)

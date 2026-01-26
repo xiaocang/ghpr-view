@@ -9,6 +9,7 @@ struct Configuration: Codable, Equatable {
     var ciStatusExcludeFilter: String  // keywords to exclude from CI status (e.g., "review")
     var pausePollingInLowPowerMode: Bool  // pause background polling when Low Power Mode is enabled
     var pausePollingOnExpensiveNetwork: Bool  // pause background polling on cellular/hotspot
+    var showMyReviewStatus: Bool  // show my review status badges on review-requested PRs
 
     static var `default`: Configuration {
         Configuration(
@@ -19,7 +20,8 @@ struct Configuration: Codable, Equatable {
             refreshOnOpen: false,
             ciStatusExcludeFilter: "review",
             pausePollingInLowPowerMode: true,
-            pausePollingOnExpensiveNetwork: true
+            pausePollingOnExpensiveNetwork: true,
+            showMyReviewStatus: false
         )
     }
 

@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var ciStatusExcludeFilter: String = "review"
     @State private var pausePollingInLowPowerMode: Bool = true
     @State private var pausePollingOnExpensiveNetwork: Bool = true
+    @State private var showMyReviewStatus: Bool = false
     @State private var showPATSwitchSheet = false
     @State private var newPATToken = ""
 
@@ -117,6 +118,8 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
 
                     Toggle("Show draft PRs", isOn: $showDrafts)
+
+                    Toggle("Show my review status badges", isOn: $showMyReviewStatus)
 
                     TextField("CI status exclude filter", text: $ciStatusExcludeFilter)
                         .textFieldStyle(.roundedBorder)
@@ -228,6 +231,7 @@ struct SettingsView: View {
         ciStatusExcludeFilter = config.ciStatusExcludeFilter
         pausePollingInLowPowerMode = config.pausePollingInLowPowerMode
         pausePollingOnExpensiveNetwork = config.pausePollingOnExpensiveNetwork
+        showMyReviewStatus = config.showMyReviewStatus
     }
 
     private func save() {
@@ -244,7 +248,8 @@ struct SettingsView: View {
             refreshOnOpen: refreshOnOpen,
             ciStatusExcludeFilter: ciStatusExcludeFilter,
             pausePollingInLowPowerMode: pausePollingInLowPowerMode,
-            pausePollingOnExpensiveNetwork: pausePollingOnExpensiveNetwork
+            pausePollingOnExpensiveNetwork: pausePollingOnExpensiveNetwork,
+            showMyReviewStatus: showMyReviewStatus
         )
 
         viewModel.configuration = config
