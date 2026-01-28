@@ -657,7 +657,7 @@ final class GitHubAPIClient: ObservableObject {
             )
             logger.info("Parsed mergedInvolvedPRs count: \(mergedInvolvedPRs.count)")
 
-            // Enrich PRs that have rollup state FAILURE but we didn't find failures in first page
+            // Enrich PRs where rollup state disagrees with first-page counts (e.g. FAILURE/PENDING not found in first 20 contexts)
             if !enrichmentInfos.isEmpty {
                 logger.info("Need to fetch additional CI contexts for \(enrichmentInfos.count) PRs")
                 let enrichedCounts = await fetchAllAdditionalCIContexts(enrichmentInfos: enrichmentInfos)
@@ -921,11 +921,13 @@ final class GitHubAPIClient: ObservableObject {
             }
 
             // Check if we need to fetch more CI contexts:
-            // - Rollup state is FAILURE but we didn't find any failures in the first page
+            // - Rollup state disagrees with first-page counts (FAILURE with no failures, or PENDING with no pending)
             // - And there are more pages to fetch
             let rollupState = statusCheckRollup?.state ?? ""
+            let upperRollup = rollupState.uppercased()
             let initialContextCount = statusCheckRollup?.contexts?.nodes.count ?? 0
-            if rollupState.uppercased() == "FAILURE" && failureCount == 0,
+            if ((upperRollup == "FAILURE" && failureCount == 0) ||
+                (upperRollup == "PENDING" && pendingCount == 0)),
                let pageInfo = statusCheckRollup?.contexts?.pageInfo,
                pageInfo.hasNextPage,
                let endCursor = pageInfo.endCursor,
