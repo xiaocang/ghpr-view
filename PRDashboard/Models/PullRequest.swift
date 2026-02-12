@@ -51,7 +51,7 @@ struct PullRequest: Identifiable, Codable, Equatable {
     let updatedAt: Date
     let mergedAt: Date?
     let lastCommitAt: Date?
-    let reviewThreads: [ReviewThread]
+    var reviewThreads: [ReviewThread]
     let category: PRCategory
     var ciStatus: CIStatus?
     var checkSuccessCount: Int

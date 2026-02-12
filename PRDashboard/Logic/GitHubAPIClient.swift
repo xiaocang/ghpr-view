@@ -222,7 +222,7 @@ final class GitHubAPIClient: ObservableObject {
                             }
                             name
                         }
-                        reviewThreads(first: 20) {
+                        reviewThreads(last: 20) {
                             nodes {
                                 id
                                 isResolved
@@ -239,6 +239,10 @@ final class GitHubAPIClient: ObservableObject {
                                         createdAt
                                     }
                                 }
+                            }
+                            pageInfo {
+                                hasPreviousPage
+                                startCursor
                             }
                         }
                         commits(last: 1) {
@@ -348,7 +352,7 @@ final class GitHubAPIClient: ObservableObject {
                             }
                             name
                         }
-                        reviewThreads(first: 20) {
+                        reviewThreads(last: 20) {
                             nodes {
                                 id
                                 isResolved
@@ -365,6 +369,10 @@ final class GitHubAPIClient: ObservableObject {
                                         createdAt
                                     }
                                 }
+                            }
+                            pageInfo {
+                                hasPreviousPage
+                                startCursor
                             }
                         }
                         commits(last: 1) {
@@ -611,6 +619,15 @@ final class GitHubAPIClient: ObservableObject {
         }
     }
 
+    /// Info needed to fetch additional review threads for a PR
+    private struct ReviewThreadEnrichmentInfo {
+        let prId: Int
+        let owner: String
+        let repo: String
+        let number: Int
+        let startCursor: String
+    }
+
     /// Info needed to fetch additional CI contexts for a PR
     private struct CIEnrichmentInfo {
         let prId: Int
@@ -637,15 +654,16 @@ final class GitHubAPIClient: ObservableObject {
 
             // Collect enrichment info from all nodes
             var enrichmentInfos: [CIEnrichmentInfo] = []
+            var reviewThreadEnrichmentInfos: [ReviewThreadEnrichmentInfo] = []
 
             // Parse authored PRs
-            var authoredPRs = parseNodes(response.data.authored.nodes, category: .authored, enrichmentInfos: &enrichmentInfos)
+            var authoredPRs = parseNodes(response.data.authored.nodes, category: .authored, enrichmentInfos: &enrichmentInfos, reviewThreadEnrichmentInfos: &reviewThreadEnrichmentInfos)
 
             // Parse review requested PRs
-            var reviewRequestedPRs = parseNodes(response.data.reviewRequested.nodes, category: .reviewRequest, enrichmentInfos: &enrichmentInfos)
+            var reviewRequestedPRs = parseNodes(response.data.reviewRequested.nodes, category: .reviewRequest, enrichmentInfos: &enrichmentInfos, reviewThreadEnrichmentInfos: &reviewThreadEnrichmentInfos)
 
             // Parse reviewed-by PRs (PRs user has already reviewed)
-            var reviewedByPRs = parseNodes(response.data.reviewedBy.nodes, category: .reviewRequest, enrichmentInfos: &enrichmentInfos)
+            var reviewedByPRs = parseNodes(response.data.reviewedBy.nodes, category: .reviewRequest, enrichmentInfos: &enrichmentInfos, reviewThreadEnrichmentInfos: &reviewThreadEnrichmentInfos)
 
             // Parse merged PRs where user is involved (author or reviewer)
             // Determine category based on whether user is author
@@ -653,7 +671,8 @@ final class GitHubAPIClient: ObservableObject {
                 response.data.mergedInvolved.nodes,
                 category: .reviewRequest,
                 usernameForAuthoredCheck: username,
-                enrichmentInfos: &enrichmentInfos
+                enrichmentInfos: &enrichmentInfos,
+                reviewThreadEnrichmentInfos: &reviewThreadEnrichmentInfos
             )
             logger.info("Parsed mergedInvolvedPRs count: \(mergedInvolvedPRs.count)")
 
@@ -690,6 +709,26 @@ final class GitHubAPIClient: ObservableObject {
                 updatePRs(&reviewRequestedPRs)
                 updatePRs(&reviewedByPRs)
                 updatePRs(&mergedInvolvedPRs)
+            }
+
+            // Enrich PRs that have more review threads beyond the first page
+            if !reviewThreadEnrichmentInfos.isEmpty {
+                logger.info("Need to fetch additional review threads for \(reviewThreadEnrichmentInfos.count) PRs")
+                let additionalThreads = await fetchAllAdditionalReviewThreads(enrichmentInfos: reviewThreadEnrichmentInfos)
+
+                func enrichReviewThreads(_ prs: inout [PullRequest]) {
+                    prs = prs.map { pr in
+                        guard let extra = additionalThreads[pr.id] else { return pr }
+                        var updated = pr
+                        updated.reviewThreads = extra + pr.reviewThreads
+                        return updated
+                    }
+                }
+
+                enrichReviewThreads(&authoredPRs)
+                enrichReviewThreads(&reviewRequestedPRs)
+                enrichReviewThreads(&reviewedByPRs)
+                enrichReviewThreads(&mergedInvolvedPRs)
             }
 
             // Combine review requested and reviewed-by, deduplicating by ID
@@ -729,6 +768,159 @@ final class GitHubAPIClient: ObservableObject {
         var failure: Int
         var pending: Int
         var limitReached: Bool
+    }
+
+    // MARK: - Review Thread Enrichment
+
+    struct ReviewThreadsResult {
+        let threads: [ReviewThread]
+        let hasPreviousPage: Bool
+        let startCursor: String?
+    }
+
+    /// Fetches additional review threads for a PR when pagination is needed
+    func fetchAdditionalReviewThreads(owner: String, repo: String, number: Int, before: String) async throws -> ReviewThreadsResult {
+        let query = """
+        query {
+            repository(owner: "\(owner)", name: "\(repo)") {
+                pullRequest(number: \(number)) {
+                    reviewThreads(last: 20, before: "\(before)") {
+                        nodes {
+                            id
+                            isResolved
+                            isOutdated
+                            path
+                            line
+                            comments(first: 5) {
+                                nodes {
+                                    id
+                                    author {
+                                        login
+                                    }
+                                    body
+                                    createdAt
+                                }
+                            }
+                        }
+                        pageInfo {
+                            hasPreviousPage
+                            startCursor
+                        }
+                    }
+                }
+            }
+        }
+        """
+
+        let responseData = try await executeGraphQL(query: query)
+        return try parseReviewThreadsResponse(data: responseData)
+    }
+
+    private func parseReviewThreadsResponse(data: Data) throws -> ReviewThreadsResult {
+        struct Response: Decodable {
+            let data: DataContainer
+            struct DataContainer: Decodable {
+                let repository: RepositoryContainer?
+            }
+            struct RepositoryContainer: Decodable {
+                let pullRequest: PullRequestContainer?
+            }
+            struct PullRequestContainer: Decodable {
+                let reviewThreads: ReviewThreadsContainer?
+            }
+            struct ReviewThreadsContainer: Decodable {
+                let nodes: [ReviewThreadNode]
+                let pageInfo: PageInfo?
+            }
+            struct PageInfo: Decodable {
+                let hasPreviousPage: Bool
+                let startCursor: String?
+            }
+            struct ReviewThreadNode: Decodable {
+                let id: String
+                let isResolved: Bool
+                let isOutdated: Bool
+                let path: String?
+                let line: Int?
+                let comments: CommentsContainer
+            }
+            struct CommentsContainer: Decodable {
+                let nodes: [CommentNode]
+            }
+            struct CommentNode: Decodable {
+                let id: String
+                let author: Author?
+                let body: String
+                let createdAt: Date
+            }
+            struct Author: Decodable {
+                let login: String
+            }
+        }
+
+        let decoder = JSONDecoder.githubDecoder
+        let response = try decoder.decode(Response.self, from: data)
+
+        guard let reviewThreads = response.data.repository?.pullRequest?.reviewThreads else {
+            return ReviewThreadsResult(threads: [], hasPreviousPage: false, startCursor: nil)
+        }
+
+        let threads = reviewThreads.nodes.map { node in
+            let comments = node.comments.nodes.map { comment in
+                ReviewComment(
+                    id: comment.id,
+                    author: comment.author?.login ?? "unknown",
+                    body: comment.body,
+                    createdAt: comment.createdAt
+                )
+            }
+            return ReviewThread(
+                id: node.id,
+                isResolved: node.isResolved,
+                isOutdated: node.isOutdated,
+                path: node.path,
+                line: node.line,
+                comments: comments
+            )
+        }
+
+        return ReviewThreadsResult(
+            threads: threads,
+            hasPreviousPage: reviewThreads.pageInfo?.hasPreviousPage ?? false,
+            startCursor: reviewThreads.pageInfo?.startCursor
+        )
+    }
+
+    /// Fetches all additional review threads for PRs that need enrichment
+    private func fetchAllAdditionalReviewThreads(enrichmentInfos: [ReviewThreadEnrichmentInfo]) async -> [Int: [ReviewThread]] {
+        var results: [Int: [ReviewThread]] = [:]
+
+        for info in enrichmentInfos {
+            do {
+                var allThreads: [ReviewThread] = []
+                var cursor: String? = info.startCursor
+
+                while let currentCursor = cursor {
+                    let result = try await fetchAdditionalReviewThreads(
+                        owner: info.owner,
+                        repo: info.repo,
+                        number: info.number,
+                        before: currentCursor
+                    )
+                    allThreads.append(contentsOf: result.threads)
+                    cursor = result.hasPreviousPage ? result.startCursor : nil
+                }
+
+                if !allThreads.isEmpty {
+                    results[info.prId] = allThreads
+                    logger.info("Enriched review threads for PR \(info.prId) (#\(info.number)): fetched \(allThreads.count) additional threads")
+                }
+            } catch {
+                logger.error("Failed to fetch additional review threads for PR \(info.prId) (#\(info.number)): \(error.localizedDescription)")
+            }
+        }
+
+        return results
     }
 
     /// Fetches additional CI contexts for all PRs that need enrichment
@@ -827,7 +1019,8 @@ final class GitHubAPIClient: ObservableObject {
         _ nodes: [CombinedGraphQLResponse.PRNode],
         category: PRCategory,
         usernameForAuthoredCheck: String? = nil,
-        enrichmentInfos: inout [CIEnrichmentInfo]
+        enrichmentInfos: inout [CIEnrichmentInfo],
+        reviewThreadEnrichmentInfos: inout [ReviewThreadEnrichmentInfo]
     ) -> [PullRequest] {
         let usernameLower = usernameForAuthoredCheck?.lowercased()
         return nodes.compactMap { node in
@@ -851,6 +1044,19 @@ final class GitHubAPIClient: ObservableObject {
                     comments: comments
                 )
             } ?? []
+
+            // Check if we need to fetch more review threads
+            if let pageInfo = node.reviewThreads?.pageInfo,
+               pageInfo.hasPreviousPage,
+               let startCursor = pageInfo.startCursor {
+                reviewThreadEnrichmentInfos.append(ReviewThreadEnrichmentInfo(
+                    prId: databaseId,
+                    owner: node.repository.owner.login,
+                    repo: node.repository.name,
+                    number: node.number,
+                    startCursor: startCursor
+                ))
+            }
 
             // Extract CI status and counts from the last commit
             let lastCommit = node.commits?.nodes.first?.commit
@@ -1086,6 +1292,12 @@ private struct GraphQLResponse: Decodable {
 
     struct ReviewThreadsContainer: Decodable {
         let nodes: [ReviewThreadNode]
+        let pageInfo: ReviewThreadPageInfo?
+    }
+
+    struct ReviewThreadPageInfo: Decodable {
+        let hasPreviousPage: Bool
+        let startCursor: String?
     }
 
     struct ReviewThreadNode: Decodable {
@@ -1196,6 +1408,12 @@ private struct CombinedGraphQLResponse: Decodable {
 
     struct ReviewThreadsContainer: Decodable {
         let nodes: [ReviewThreadNode]
+        let pageInfo: ReviewThreadPageInfo?
+    }
+
+    struct ReviewThreadPageInfo: Decodable {
+        let hasPreviousPage: Bool
+        let startCursor: String?
     }
 
     struct ReviewThreadNode: Decodable {
