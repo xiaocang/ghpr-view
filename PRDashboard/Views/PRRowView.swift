@@ -63,23 +63,27 @@ struct PRRowView: View {
                         DraftBadge()
                     }
 
-                    if showMyReviewStatus, let reviewStatus = pr.myReviewStatus {
-                        MyReviewStatusBadge(status: reviewStatus)
-                    }
-
                     if pr.approvalCount > 0 {
                         ApprovalBadge(count: pr.approvalCount)
                     }
 
                     Spacer()
 
-                    if showCIStatus, let ciStatus = pr.ciStatus {
-                        CIStatusIcon(
-                            status: ciStatus,
-                            successCount: pr.checkSuccessCount,
-                            failureCount: pr.checkFailureCount,
-                            pendingCount: pr.checkPendingCount
-                        )
+                    if pr.category == .authored {
+                        if showCIStatus, let ciStatus = pr.ciStatus {
+                            CIStatusIcon(
+                                status: ciStatus,
+                                successCount: pr.checkSuccessCount,
+                                failureCount: pr.checkFailureCount,
+                                pendingCount: pr.checkPendingCount,
+                                isRunning: pr.ciIsRunning,
+                                workflows: pr.ciWorkflows
+                            )
+                        }
+                    } else if pr.category == .reviewRequest {
+                        if showMyReviewStatus, let reviewStatus = pr.myReviewStatus {
+                            MyReviewStatusBadge(status: reviewStatus)
+                        }
                     }
 
                     if pr.unresolvedCount > 0 {

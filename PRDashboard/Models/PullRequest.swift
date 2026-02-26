@@ -36,6 +36,28 @@ enum MyReviewStatus: String, Codable {
     case approved          // APPROVED
 }
 
+struct CIWorkflowInfo: Codable, Equatable {
+    let name: String
+    let isWorkflow: Bool  // true = GitHub Actions workflow, false = standalone check/status
+    var successCount: Int
+    var failureCount: Int
+    var pendingCount: Int
+
+    var totalCount: Int { successCount + failureCount + pendingCount }
+
+    var status: CIStatus {
+        if failureCount > 0 { return .failure }
+        if pendingCount > 0 { return .pending }
+        if successCount > 0 { return .success }
+        return .expected
+    }
+}
+
+struct CIExtendedInfo: Codable, Equatable {
+    var isRunning: Bool
+    var workflows: [CIWorkflowInfo]
+}
+
 struct PullRequest: Identifiable, Codable, Equatable {
     let id: Int
     let number: Int
@@ -63,6 +85,10 @@ struct PullRequest: Identifiable, Codable, Equatable {
     var reviewRequestedAt: Date?
     var myThreadsAllResolved: Bool
     var approvalCount: Int
+    var ciExtendedInfo: CIExtendedInfo?
+
+    var ciIsRunning: Bool { ciExtendedInfo?.isRunning ?? false }
+    var ciWorkflows: [CIWorkflowInfo] { ciExtendedInfo?.workflows ?? [] }
 
     var checkTotalCount: Int {
         checkSuccessCount + checkFailureCount + checkPendingCount
