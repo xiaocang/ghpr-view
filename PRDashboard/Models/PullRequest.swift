@@ -73,6 +73,7 @@ struct PullRequest: Identifiable, Codable, Equatable {
     let updatedAt: Date
     let mergedAt: Date?
     let lastCommitAt: Date?
+    let headCommitOid: String?
     var reviewThreads: [ReviewThread]
     let category: PRCategory
     var ciStatus: CIStatus?

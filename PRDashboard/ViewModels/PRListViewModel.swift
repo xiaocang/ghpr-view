@@ -240,6 +240,17 @@ final class PRListViewModel: ObservableObject {
         oauthManager.clearPATError()
     }
 
+    func rerunFailedCI(_ pr: PullRequest) {
+        Task {
+            do {
+                let count = try await prManager.rerunFailedCI(for: pr)
+                logger.info("Re-triggered \(count) failed workflow(s) for PR #\(pr.number)")
+            } catch {
+                logger.error("Failed to rerun CI for PR #\(pr.number): \(error.localizedDescription)")
+            }
+        }
+    }
+
     // MARK: - Private
 
     private func groupByRepo(_ prs: [PullRequest], sortByMergedDate: Bool = false) -> [(String, [PullRequest])] {

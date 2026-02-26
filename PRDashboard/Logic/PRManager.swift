@@ -293,6 +293,49 @@ final class PRManager: PRManagerType, ObservableObject {
         }
     }
 
+    func rerunFailedCI(for pr: PullRequest) async throws -> Int {
+        guard let headSHA = pr.headCommitOid else {
+            throw APIError.unknown("No head commit SHA available for PR #\(pr.number)")
+        }
+        let count = try await apiClient.rerunFailedWorkflows(
+            owner: pr.repositoryOwner, repo: pr.repositoryName, headSHA: headSHA
+        )
+        if count > 0 {
+            // Delay then refresh just this PR's CI status instead of all PRs
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                await self?.refreshSinglePRCI(for: pr)
+            }
+        }
+        return count
+    }
+
+    func refreshSinglePRCI(for pr: PullRequest) async {
+        do {
+            let result = try await apiClient.fetchSinglePRCIStatus(
+                owner: pr.repositoryOwner, repo: pr.repositoryName, number: pr.number
+            )
+            if let index = prList.pullRequests.firstIndex(where: { $0.id == pr.id }) {
+                var updated = prList.pullRequests
+                updated[index].ciStatus = result.ciStatus
+                updated[index].checkSuccessCount = result.checkSuccessCount
+                updated[index].checkFailureCount = result.checkFailureCount
+                updated[index].checkPendingCount = result.checkPendingCount
+                updated[index].ciExtendedInfo = result.ciExtendedInfo
+                prList = PRList(
+                    lastUpdated: prList.lastUpdated,
+                    pullRequests: updated,
+                    mergedPullRequests: prList.mergedPullRequests,
+                    isLoading: false,
+                    error: nil
+                )
+                logger.info("Refreshed single PR CI status for #\(pr.number): \(result.ciStatus?.rawValue ?? "nil")")
+            }
+        } catch {
+            logger.error("Failed to refresh single PR CI for #\(pr.number): \(error.localizedDescription)")
+        }
+    }
+
     func updateConfiguration(_ config: Configuration) {
         configuration = config
         Self.saveConfiguration(config)

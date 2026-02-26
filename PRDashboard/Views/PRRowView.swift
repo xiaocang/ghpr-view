@@ -1,12 +1,32 @@
 import SwiftUI
+import Combine
+
+private class MenuTracker: ObservableObject {
+    static let shared = MenuTracker()
+    @Published private(set) var isTracking = false
+    private var cancellables = Set<AnyCancellable>()
+
+    private init() {
+        NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.isTracking = true }
+            .store(in: &cancellables)
+        NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.isTracking = false }
+            .store(in: &cancellables)
+    }
+}
 
 struct PRRowView: View {
     let pr: PullRequest
     let onOpen: () -> Void
     let onCopyURL: () -> Void
+    var onRerunFailedCI: (() -> Void)?
     var showCIStatus: Bool = true
     var showMyReviewStatus: Bool = false
 
+    @ObservedObject private var menuTracker = MenuTracker.shared
     @State private var isHovered = false
 
     private var timeDisplay: String {
@@ -98,7 +118,14 @@ struct PRRowView: View {
         .cornerRadius(6)
         .contentShape(Rectangle())
         .onHover { hovering in
-            isHovered = hovering
+            if !menuTracker.isTracking {
+                isHovered = hovering
+            }
+        }
+        .onChange(of: menuTracker.isTracking) { isTracking in
+            if !isTracking {
+                isHovered = false
+            }
         }
         .onTapGesture {
             onOpen()
@@ -109,6 +136,14 @@ struct PRRowView: View {
             }
             Button("Copy URL") {
                 onCopyURL()
+            }
+            if pr.category == .authored && pr.ciStatus == .failure {
+                Divider()
+                Button {
+                    onRerunFailedCI?()
+                } label: {
+                    Label("Rerun Failed CI", systemImage: "arrow.clockwise")
+                }
             }
         }
     }
@@ -132,6 +167,7 @@ struct PRRowView: View {
                 updatedAt: Date(),
                 mergedAt: nil,
                 lastCommitAt: Date(),
+                headCommitOid: nil,
                 reviewThreads: [
                     ReviewThread(id: "1", isResolved: false, isOutdated: false, path: nil, line: nil, comments: [])
                 ],
@@ -165,6 +201,7 @@ struct PRRowView: View {
                 updatedAt: Date(),
                 mergedAt: nil,
                 lastCommitAt: Date(),
+                headCommitOid: nil,
                 reviewThreads: [],
                 category: .reviewRequest,
                 ciStatus: .success,

@@ -739,6 +739,7 @@ final class GitHubAPIClient: ObservableObject {
                     updatedAt: node.updatedAt,
                     mergedAt: node.mergedAt,
                     lastCommitAt: lastCommitAt,
+                    headCommitOid: lastCommit?.oid,
                     reviewThreads: reviewThreads,
                     category: category,
                     ciStatus: ciStatus,
@@ -1304,6 +1305,7 @@ final class GitHubAPIClient: ObservableObject {
                 updatedAt: node.updatedAt,
                 mergedAt: node.mergedAt,
                 lastCommitAt: lastCommitAt,
+                headCommitOid: lastCommit?.oid,
                 reviewThreads: reviewThreads,
                 category: resolvedCategory,
                 ciStatus: ciStatus,
@@ -1319,6 +1321,223 @@ final class GitHubAPIClient: ObservableObject {
                 ciExtendedInfo: ciExtendedInfo
             )
         }
+    }
+
+    // MARK: - Single PR CI Status
+
+    struct SinglePRCIResult {
+        let ciStatus: CIStatus?
+        let checkSuccessCount: Int
+        let checkFailureCount: Int
+        let checkPendingCount: Int
+        let ciExtendedInfo: CIExtendedInfo?
+    }
+
+    func fetchSinglePRCIStatus(owner: String, repo: String, number: Int) async throws -> SinglePRCIResult {
+        let query = """
+        query {
+            repository(owner: "\(owner)", name: "\(repo)") {
+                pullRequest(number: \(number)) {
+                    commits(last: 1) {
+                        nodes {
+                            commit {
+                                statusCheckRollup {
+                                    state
+                                    contexts(first: 100) {
+                                        nodes {
+                                            ... on CheckRun {
+                                                name
+                                                conclusion
+                                                completedAt
+                                                checkSuite {
+                                                    workflowRun {
+                                                        workflow {
+                                                            name
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            ... on StatusContext {
+                                                context
+                                                state
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """
+
+        let responseData = try await executeGraphQL(query: query)
+        return try parseSinglePRCIResponse(data: responseData)
+    }
+
+    private func parseSinglePRCIResponse(data: Data) throws -> SinglePRCIResult {
+        struct Response: Decodable {
+            let data: DataContainer
+            struct DataContainer: Decodable {
+                let repository: RepositoryContainer?
+            }
+            struct RepositoryContainer: Decodable {
+                let pullRequest: PRContainer?
+            }
+            struct PRContainer: Decodable {
+                let commits: CommitsContainer?
+            }
+            struct CommitsContainer: Decodable {
+                let nodes: [CommitNode]
+            }
+            struct CommitNode: Decodable {
+                let commit: CommitInfo
+            }
+            struct CommitInfo: Decodable {
+                let statusCheckRollup: StatusCheckRollup?
+            }
+            struct StatusCheckRollup: Decodable {
+                let state: String
+                let contexts: ContextsContainer?
+            }
+            struct ContextsContainer: Decodable {
+                let nodes: [ContextNode]
+            }
+            struct ContextNode: Decodable {
+                let name: String?
+                let conclusion: String?
+                let completedAt: Date?
+                let state: String?
+                let context: String?
+                let checkSuite: CheckSuiteNode?
+            }
+            struct CheckSuiteNode: Decodable {
+                let workflowRun: WorkflowRunNode?
+            }
+            struct WorkflowRunNode: Decodable {
+                let workflow: WorkflowNode?
+            }
+            struct WorkflowNode: Decodable {
+                let name: String?
+            }
+        }
+
+        let decoder = JSONDecoder.githubDecoder
+        let response = try decoder.decode(Response.self, from: data)
+
+        guard let rollup = response.data.repository?.pullRequest?.commits?.nodes.first?.commit.statusCheckRollup else {
+            return SinglePRCIResult(ciStatus: nil, checkSuccessCount: 0, checkFailureCount: 0, checkPendingCount: 0, ciExtendedInfo: nil)
+        }
+
+        let ciContexts = (rollup.contexts?.nodes ?? []).map { node in
+            CIContextNode(
+                name: node.name,
+                conclusion: node.conclusion,
+                state: node.state,
+                context: node.context,
+                workflowName: node.checkSuite?.workflowRun?.workflow?.name,
+                completedAt: node.completedAt
+            )
+        }
+
+        let excludeFilter = Self.loadCIStatusExcludeFilter()
+        let ciResult = Self.parseCIContexts(ciContexts, excludeFilter: excludeFilter)
+
+        let ciStatus: CIStatus?
+        if ciResult.failureCount > 0 {
+            ciStatus = .failure
+        } else if ciResult.pendingCount > 0 {
+            ciStatus = .pending
+        } else if ciResult.successCount > 0 {
+            ciStatus = .success
+        } else {
+            ciStatus = .expected
+        }
+
+        let ciExtendedInfo: CIExtendedInfo? = ciResult.workflows.isEmpty ? nil : CIExtendedInfo(
+            isRunning: ciResult.isRunning,
+            workflows: Array(ciResult.workflows.values)
+        )
+
+        return SinglePRCIResult(
+            ciStatus: ciStatus,
+            checkSuccessCount: ciResult.successCount,
+            checkFailureCount: ciResult.failureCount,
+            checkPendingCount: ciResult.pendingCount,
+            ciExtendedInfo: ciExtendedInfo
+        )
+    }
+
+    // MARK: - Rerun Failed CI
+
+    /// Re-run all failed workflow runs for a PR's head commit.
+    /// Returns the number of workflow runs that were re-triggered.
+    func rerunFailedWorkflows(owner: String, repo: String, headSHA: String) async throws -> Int {
+        // 1. Fetch workflow runs for this commit
+        let runsURL = URL(string: "https://api.github.com/repos/\(owner)/\(repo)/actions/runs?head_sha=\(headSHA)")!
+        var runsRequest = URLRequest(url: runsURL)
+        runsRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        runsRequest.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+
+        let (runsData, runsResponse): (Data, URLResponse)
+        do {
+            (runsData, runsResponse) = try await session.data(for: runsRequest)
+        } catch {
+            throw APIError.network(error)
+        }
+
+        guard let httpResponse = runsResponse as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            if httpResponse.statusCode == 401 {
+                throw APIError.unauthorized
+            }
+            throw APIError.unknown("Failed to fetch workflow runs: HTTP \(httpResponse.statusCode)")
+        }
+
+        // 2. Parse and filter for failed runs
+        guard let json = try? JSONSerialization.jsonObject(with: runsData) as? [String: Any],
+              let workflowRuns = json["workflow_runs"] as? [[String: Any]] else {
+            throw APIError.invalidResponse
+        }
+
+        let failedRuns = workflowRuns.filter { run in
+            (run["conclusion"] as? String) == "failure"
+        }
+
+        if failedRuns.isEmpty {
+            logger.info("No failed workflow runs found for SHA \(headSHA)")
+            return 0
+        }
+
+        // 3. Rerun failed jobs for each failed workflow run
+        var rerunCount = 0
+        for run in failedRuns {
+            guard let runId = run["id"] as? Int else { continue }
+
+            let rerunURL = URL(string: "https://api.github.com/repos/\(owner)/\(repo)/actions/runs/\(runId)/rerun-failed-jobs")!
+            var rerunRequest = URLRequest(url: rerunURL)
+            rerunRequest.httpMethod = "POST"
+            rerunRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            rerunRequest.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+
+            do {
+                let (_, rerunResponse) = try await session.data(for: rerunRequest)
+                if let rerunHttp = rerunResponse as? HTTPURLResponse, rerunHttp.statusCode == 201 {
+                    rerunCount += 1
+                    logger.info("Rerun triggered for workflow run \(runId)")
+                } else if let rerunHttp = rerunResponse as? HTTPURLResponse {
+                    logger.warning("Failed to rerun workflow run \(runId): HTTP \(rerunHttp.statusCode)")
+                }
+            } catch {
+                logger.warning("Network error rerunning workflow run \(runId): \(error.localizedDescription)")
+            }
+        }
+
+        return rerunCount
     }
 
     // MARK: - Configuration

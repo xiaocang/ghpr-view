@@ -148,6 +148,7 @@ struct MainView: View {
                     pr: pr,
                     onOpen: { viewModel.openPR(pr) },
                     onCopyURL: { viewModel.copyURL(pr) },
+                    onRerunFailedCI: { viewModel.rerunFailedCI(pr) },
                     showCIStatus: showCIStatus,
                     showMyReviewStatus: viewModel.configuration.showMyReviewStatus
                 )
