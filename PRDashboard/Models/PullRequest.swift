@@ -62,6 +62,7 @@ struct PullRequest: Identifiable, Codable, Equatable {
     var myLastReviewAt: Date?
     var reviewRequestedAt: Date?
     var myThreadsAllResolved: Bool
+    var approvalCount: Int
 
     var checkTotalCount: Int {
         checkSuccessCount + checkFailureCount + checkPendingCount

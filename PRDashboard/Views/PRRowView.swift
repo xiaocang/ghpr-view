@@ -67,6 +67,10 @@ struct PRRowView: View {
                         MyReviewStatusBadge(status: reviewStatus)
                     }
 
+                    if pr.approvalCount > 0 {
+                        ApprovalBadge(count: pr.approvalCount)
+                    }
+
                     Spacer()
 
                     if showCIStatus, let ciStatus = pr.ciStatus {
@@ -135,7 +139,8 @@ struct PRRowView: View {
                 myLastReviewState: nil,
                 myLastReviewAt: nil,
                 reviewRequestedAt: nil,
-                myThreadsAllResolved: false
+                myThreadsAllResolved: false,
+                approvalCount: 2
             ),
             onOpen: {},
             onCopyURL: {}
@@ -165,7 +170,8 @@ struct PRRowView: View {
                 myLastReviewState: .changesRequested,
                 myLastReviewAt: Date().addingTimeInterval(-3600),
                 reviewRequestedAt: nil,
-                myThreadsAllResolved: false
+                myThreadsAllResolved: false,
+                approvalCount: 0
             ),
             onOpen: {},
             onCopyURL: {},

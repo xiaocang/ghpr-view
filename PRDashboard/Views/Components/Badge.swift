@@ -84,6 +84,24 @@ struct MyReviewStatusBadge: View {
     }
 }
 
+struct ApprovalBadge: View {
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 9, weight: .bold))
+            Text("\(count)")
+                .font(.system(size: 10, weight: .semibold))
+        }
+        .foregroundColor(.green)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(Color.green.opacity(0.15))
+        .clipShape(Capsule())
+    }
+}
+
 #Preview {
     VStack(spacing: 10) {
         Badge(count: 5)
@@ -94,6 +112,7 @@ struct MyReviewStatusBadge: View {
         MyReviewStatusBadge(status: .changesRequested)
         MyReviewStatusBadge(status: .changesResolved)
         MyReviewStatusBadge(status: .approved)
+        ApprovalBadge(count: 2)
     }
     .padding()
 }
