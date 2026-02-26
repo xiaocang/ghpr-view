@@ -113,6 +113,13 @@ final class GitHubAPIClient: ObservableObject {
                                     ... on CheckRun {
                                         name
                                         conclusion
+                                        checkSuite {
+                                            workflowRun {
+                                                workflow {
+                                                    name
+                                                }
+                                            }
+                                        }
                                     }
                                     ... on StatusContext {
                                         context
@@ -141,11 +148,18 @@ final class GitHubAPIClient: ObservableObject {
         let endCursor: String?
     }
 
-    struct CIContextNode {
+    struct CIContextNode: CIContextLike {
         let name: String?
         let conclusion: String?
         let state: String?
         let context: String?
+        let workflowName: String?
+
+        var ciName: String? { name }
+        var ciConclusion: String? { conclusion }
+        var ciState: String? { state }
+        var ciContext: String? { context }
+        var ciWorkflowName: String? { workflowName }
     }
 
     private func parseCIContextsResponse(data: Data) throws -> CIContextsResult {
@@ -176,6 +190,16 @@ final class GitHubAPIClient: ObservableObject {
                 let conclusion: String?
                 let state: String?
                 let context: String?
+                let checkSuite: CheckSuiteNode?
+            }
+            struct CheckSuiteNode: Decodable {
+                let workflowRun: WorkflowRunNode?
+            }
+            struct WorkflowRunNode: Decodable {
+                let workflow: WorkflowNode?
+            }
+            struct WorkflowNode: Decodable {
+                let name: String?
             }
         }
 
@@ -187,7 +211,13 @@ final class GitHubAPIClient: ObservableObject {
         }
 
         let ciContexts = contexts.nodes.map { node in
-            CIContextNode(name: node.name, conclusion: node.conclusion, state: node.state, context: node.context)
+            CIContextNode(
+                name: node.name,
+                conclusion: node.conclusion,
+                state: node.state,
+                context: node.context,
+                workflowName: node.checkSuite?.workflowRun?.workflow?.name
+            )
         }
 
         return CIContextsResult(
@@ -195,6 +225,118 @@ final class GitHubAPIClient: ObservableObject {
             hasNextPage: contexts.pageInfo?.hasNextPage ?? false,
             endCursor: contexts.pageInfo?.endCursor
         )
+    }
+
+    // MARK: - CI Parsing
+
+    /// Protocol to unify different ContextNode types for shared CI parsing
+    private protocol CIContextLike {
+        var ciName: String? { get }
+        var ciConclusion: String? { get }
+        var ciState: String? { get }
+        var ciContext: String? { get }
+        var ciWorkflowName: String? { get }
+    }
+
+    /// Result of parsing CI contexts into workflow-grouped info
+    private struct CIParseResult {
+        var successCount: Int = 0
+        var failureCount: Int = 0
+        var pendingCount: Int = 0
+        var isRunning: Bool = false
+        var workflows: [String: CIWorkflowInfo] = [:]
+        var seenCheckNames: Set<String> = []
+    }
+
+    /// Shared CI context parsing logic used by parseSearchResponse, parseNodes, and fetchFullCIContexts
+    private static func parseCIContexts<T: CIContextLike>(_ contexts: [T], excludeFilter: String, existing: CIParseResult = CIParseResult()) -> CIParseResult {
+        var result = existing
+
+        for context in contexts.reversed() {
+            if let conclusion = context.ciConclusion {
+                // CheckRun with conclusion
+                if let name = context.ciName {
+                    if result.seenCheckNames.contains(name) { continue }
+                    result.seenCheckNames.insert(name)
+                }
+                let workflowKey = context.ciWorkflowName ?? context.ciName ?? "unknown"
+                let isWorkflow = context.ciWorkflowName != nil
+
+                switch conclusion.uppercased() {
+                case "SUCCESS":
+                    result.successCount += 1
+                    updateWorkflow(&result.workflows, key: workflowKey, isWorkflow: isWorkflow, success: 1)
+                case "FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE":
+                    result.failureCount += 1
+                    updateWorkflow(&result.workflows, key: workflowKey, isWorkflow: isWorkflow, failure: 1)
+                case "CANCELLED", "SKIPPED", "NEUTRAL", "STALE":
+                    break
+                default:
+                    result.pendingCount += 1
+                    result.isRunning = true
+                    updateWorkflow(&result.workflows, key: workflowKey, isWorkflow: isWorkflow, pending: 1)
+                }
+            } else if let state = context.ciState {
+                // StatusContext
+                if !excludeFilter.isEmpty,
+                   let contextName = context.ciContext,
+                   contextName.lowercased().contains(excludeFilter.lowercased()) {
+                    continue
+                }
+                let workflowKey = context.ciContext ?? "status"
+                switch state.uppercased() {
+                case "SUCCESS":
+                    result.successCount += 1
+                    updateWorkflow(&result.workflows, key: workflowKey, isWorkflow: false, success: 1)
+                case "FAILURE", "ERROR":
+                    result.failureCount += 1
+                    updateWorkflow(&result.workflows, key: workflowKey, isWorkflow: false, failure: 1)
+                case "PENDING", "EXPECTED":
+                    result.pendingCount += 1
+                    if state.uppercased() == "PENDING" { result.isRunning = true }
+                    updateWorkflow(&result.workflows, key: workflowKey, isWorkflow: false, pending: 1)
+                default:
+                    break
+                }
+            } else {
+                // CheckRun with no conclusion = in progress
+                if let name = context.ciName {
+                    if result.seenCheckNames.contains(name) { continue }
+                    result.seenCheckNames.insert(name)
+                }
+                let workflowKey = context.ciWorkflowName ?? context.ciName ?? "unknown"
+                let isWorkflow = context.ciWorkflowName != nil
+                result.pendingCount += 1
+                result.isRunning = true
+                updateWorkflow(&result.workflows, key: workflowKey, isWorkflow: isWorkflow, pending: 1)
+            }
+        }
+
+        return result
+    }
+
+    private static func updateWorkflow(
+        _ workflows: inout [String: CIWorkflowInfo],
+        key: String,
+        isWorkflow: Bool,
+        success: Int = 0,
+        failure: Int = 0,
+        pending: Int = 0
+    ) {
+        if var wf = workflows[key] {
+            wf.successCount += success
+            wf.failureCount += failure
+            wf.pendingCount += pending
+            workflows[key] = wf
+        } else {
+            workflows[key] = CIWorkflowInfo(
+                name: key,
+                isWorkflow: isWorkflow,
+                successCount: success,
+                failureCount: failure,
+                pendingCount: pending
+            )
+        }
     }
 
     // MARK: - Private
@@ -257,6 +399,13 @@ final class GitHubAPIClient: ObservableObject {
                                                 ... on CheckRun {
                                                     name
                                                     conclusion
+                                                    checkSuite {
+                                                        workflowRun {
+                                                            workflow {
+                                                                name
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                                 ... on StatusContext {
                                                     context
@@ -392,6 +541,13 @@ final class GitHubAPIClient: ObservableObject {
                                                 ... on CheckRun {
                                                     name
                                                     conclusion
+                                                    checkSuite {
+                                                        workflowRun {
+                                                            workflow {
+                                                                name
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                                 ... on StatusContext {
                                                     context
@@ -517,80 +673,29 @@ final class GitHubAPIClient: ObservableObject {
                 let statusCheckRollup = lastCommit?.statusCheckRollup
                 let lastCommitAt = lastCommit?.committedDate
 
-                // Count check statuses
-                var successCount = 0
-                var failureCount = 0
-                var pendingCount = 0
-
-                if let contexts = statusCheckRollup?.contexts?.nodes {
-                    // Track seen CheckRun names to deduplicate re-runs (only count latest)
-                    // Reverse the array because GitHub returns oldest first, but we want newest
-                    var seenCheckNames = Set<String>()
-
-                    for context in contexts.reversed() {
-                        // CheckRun uses conclusion, StatusContext uses state
-                        if let conclusion = context.conclusion {
-                            // Deduplicate CheckRuns by name (only count latest run)
-                            if let name = context.name {
-                                if seenCheckNames.contains(name) {
-                                    continue  // Skip older run of same check
-                                }
-                                seenCheckNames.insert(name)
-                            }
-                            switch conclusion.uppercased() {
-                            case "SUCCESS":
-                                successCount += 1
-                            case "FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE":
-                                failureCount += 1
-                            case "CANCELLED", "SKIPPED", "NEUTRAL", "STALE":
-                                // Don't count cancelled/skipped/neutral in totals
-                                break
-                            default:
-                                pendingCount += 1  // null or unknown = in progress
-                            }
-                        } else if let state = context.state {
-                            // Skip status contexts matching exclude filter (only show CI checks)
-                            let excludeFilter = Self.loadCIStatusExcludeFilter()
-                            if !excludeFilter.isEmpty,
-                               let contextName = context.context,
-                               contextName.lowercased().contains(excludeFilter.lowercased()) {
-                                continue
-                            }
-                            switch state.uppercased() {
-                            case "SUCCESS":
-                                successCount += 1
-                            case "FAILURE", "ERROR":
-                                failureCount += 1
-                            case "PENDING", "EXPECTED":
-                                pendingCount += 1
-                            default:
-                                break
-                            }
-                        } else {
-                            // CheckRun with no conclusion means in progress
-                            // Deduplicate by name if available
-                            if let name = context.name {
-                                if seenCheckNames.contains(name) {
-                                    continue
-                                }
-                                seenCheckNames.insert(name)
-                            }
-                            pendingCount += 1
-                        }
-                    }
+                // Parse CI contexts using shared helper
+                let ciContexts = (statusCheckRollup?.contexts?.nodes ?? []).map { ctx in
+                    CIContextNode(
+                        name: ctx.name,
+                        conclusion: ctx.conclusion,
+                        state: ctx.state,
+                        context: ctx.context,
+                        workflowName: ctx.checkSuite?.workflowRun?.workflow?.name
+                    )
                 }
+                let excludeFilter = Self.loadCIStatusExcludeFilter()
+                let ciResult = Self.parseCIContexts(ciContexts, excludeFilter: excludeFilter)
 
                 // Derive CI status from our counts (not GitHub's rollup which may include excluded checks)
                 let rollupState = statusCheckRollup?.state
                 let ciStatus: CIStatus?
-                if failureCount > 0 {
+                if ciResult.failureCount > 0 {
                     ciStatus = .failure
-                } else if pendingCount > 0 {
+                } else if ciResult.pendingCount > 0 {
                     ciStatus = .pending
-                } else if successCount > 0 {
+                } else if ciResult.successCount > 0 {
                     ciStatus = .success
                 } else if statusCheckRollup != nil {
-                    // No checks we count, but rollup exists - use expected
                     ciStatus = .expected
                 } else {
                     ciStatus = nil
@@ -599,6 +704,11 @@ final class GitHubAPIClient: ObservableObject {
                 let approvalCount = node.latestReviews?.nodes
                     .filter { $0.state == "APPROVED" }
                     .count ?? 0
+
+                let ciExtendedInfo: CIExtendedInfo? = ciResult.workflows.isEmpty ? nil : CIExtendedInfo(
+                    isRunning: ciResult.isRunning,
+                    workflows: Array(ciResult.workflows.values)
+                )
 
                 return PullRequest(
                     id: databaseId,
@@ -618,15 +728,16 @@ final class GitHubAPIClient: ObservableObject {
                     reviewThreads: reviewThreads,
                     category: category,
                     ciStatus: ciStatus,
-                    checkSuccessCount: successCount,
-                    checkFailureCount: failureCount,
-                    checkPendingCount: pendingCount,
+                    checkSuccessCount: ciResult.successCount,
+                    checkFailureCount: ciResult.failureCount,
+                    checkPendingCount: ciResult.pendingCount,
                     githubCIState: rollupState,
                     myLastReviewState: nil,
                     myLastReviewAt: nil,
                     reviewRequestedAt: nil,
                     myThreadsAllResolved: false,
-                    approvalCount: approvalCount
+                    approvalCount: approvalCount,
+                    ciExtendedInfo: ciExtendedInfo
                 )
             }
         } catch {
@@ -716,6 +827,27 @@ final class GitHubAPIClient: ObservableObject {
                             updated.ciStatus = .unknown
                             logger.info("PR \(updated.id) set to unknown: GitHub says FAILURE but limit reached without finding failures")
                         }
+                        // Merge workflow data from enrichment into existing ciExtendedInfo
+                        if !counts.workflows.isEmpty {
+                            var mergedWorkflows = updated.ciExtendedInfo?.workflows.reduce(into: [String: CIWorkflowInfo]()) {
+                                $0[$1.name] = $1
+                            } ?? [:]
+                            for (key, wf) in counts.workflows {
+                                if var existing = mergedWorkflows[key] {
+                                    existing.successCount += wf.successCount
+                                    existing.failureCount += wf.failureCount
+                                    existing.pendingCount += wf.pendingCount
+                                    mergedWorkflows[key] = existing
+                                } else {
+                                    mergedWorkflows[key] = wf
+                                }
+                            }
+                            let isRunning = (updated.ciExtendedInfo?.isRunning ?? false) || counts.isRunning
+                            updated.ciExtendedInfo = CIExtendedInfo(
+                                isRunning: isRunning,
+                                workflows: Array(mergedWorkflows.values)
+                            )
+                        }
                         return updated
                     }
                 }
@@ -783,6 +915,8 @@ final class GitHubAPIClient: ObservableObject {
         var failure: Int
         var pending: Int
         var limitReached: Bool
+        var isRunning: Bool
+        var workflows: [String: CIWorkflowInfo]
     }
 
     // MARK: - Review Thread Enrichment
@@ -964,62 +1098,23 @@ final class GitHubAPIClient: ObservableObject {
     /// Fetches all remaining CI contexts for a commit, paginating as needed
     /// Returns counts and whether the limit was reached before exhausting all pages
     private func fetchFullCIContexts(owner: String, repo: String, commitOid: String, startCursor: String, initialCount: Int) async throws -> CICounts {
-        var counts = CICounts(success: 0, failure: 0, pending: 0, limitReached: false)
-        var seenCheckNames = Set<String>()
+        var parseResult = CIParseResult()
         var cursor: String? = startCursor
         let excludeFilter = Self.loadCIStatusExcludeFilter()
         var totalFetched = initialCount
+        var limitReached = false
 
         while let currentCursor = cursor {
             let result = try await fetchAdditionalCIContexts(owner: owner, repo: repo, commitOid: commitOid, after: currentCursor)
             totalFetched += result.contexts.count
 
-            for context in result.contexts.reversed() {
-                if let conclusion = context.conclusion {
-                    if let name = context.name {
-                        if seenCheckNames.contains(name) { continue }
-                        seenCheckNames.insert(name)
-                    }
-                    switch conclusion.uppercased() {
-                    case "SUCCESS":
-                        counts.success += 1
-                    case "FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE":
-                        counts.failure += 1
-                    case "CANCELLED", "SKIPPED", "NEUTRAL", "STALE":
-                        break
-                    default:
-                        counts.pending += 1
-                    }
-                } else if let state = context.state {
-                    if !excludeFilter.isEmpty,
-                       let contextName = context.context,
-                       contextName.lowercased().contains(excludeFilter.lowercased()) {
-                        continue
-                    }
-                    switch state.uppercased() {
-                    case "SUCCESS":
-                        counts.success += 1
-                    case "FAILURE", "ERROR":
-                        counts.failure += 1
-                    case "PENDING", "EXPECTED":
-                        counts.pending += 1
-                    default:
-                        break
-                    }
-                } else {
-                    if let name = context.name {
-                        if seenCheckNames.contains(name) { continue }
-                        seenCheckNames.insert(name)
-                    }
-                    counts.pending += 1
-                }
-            }
+            parseResult = Self.parseCIContexts(result.contexts, excludeFilter: excludeFilter, existing: parseResult)
 
             // Check if we've reached the limit
             if totalFetched >= Self.maxCIContextsToFetch {
                 if result.hasNextPage {
                     logger.warning("Reached CI context limit (\(Self.maxCIContextsToFetch)) for \(owner)/\(repo)@\(commitOid), more pages available")
-                    counts.limitReached = true
+                    limitReached = true
                 }
                 break
             }
@@ -1027,7 +1122,14 @@ final class GitHubAPIClient: ObservableObject {
             cursor = result.hasNextPage ? result.endCursor : nil
         }
 
-        return counts
+        return CICounts(
+            success: parseResult.successCount,
+            failure: parseResult.failureCount,
+            pending: parseResult.pendingCount,
+            limitReached: limitReached,
+            isRunning: parseResult.isRunning,
+            workflows: parseResult.workflows
+        )
     }
 
     private func parseNodes(
@@ -1078,68 +1180,18 @@ final class GitHubAPIClient: ObservableObject {
             let statusCheckRollup = lastCommit?.statusCheckRollup
             let lastCommitAt = lastCommit?.committedDate
 
-            // Count check statuses
-            var successCount = 0
-            var failureCount = 0
-            var pendingCount = 0
-
-            if let contexts = statusCheckRollup?.contexts?.nodes {
-                // Track seen CheckRun names to deduplicate re-runs (only count latest)
-                // Reverse the array because GitHub returns oldest first, but we want newest
-                var seenCheckNames = Set<String>()
-
-                for context in contexts.reversed() {
-                    // CheckRun uses conclusion, StatusContext uses state
-                    if let conclusion = context.conclusion {
-                        // Deduplicate CheckRuns by name (only count latest run)
-                        if let name = context.name {
-                            if seenCheckNames.contains(name) {
-                                continue  // Skip older run of same check
-                            }
-                            seenCheckNames.insert(name)
-                        }
-                        switch conclusion.uppercased() {
-                        case "SUCCESS":
-                            successCount += 1
-                        case "FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE":
-                            failureCount += 1
-                        case "CANCELLED", "SKIPPED", "NEUTRAL", "STALE":
-                            // Don't count cancelled/skipped/neutral in totals
-                            break
-                        default:
-                            pendingCount += 1  // null or unknown = in progress
-                        }
-                    } else if let state = context.state {
-                        // Skip status contexts matching exclude filter (only show CI checks)
-                        let excludeFilter = Self.loadCIStatusExcludeFilter()
-                        if !excludeFilter.isEmpty,
-                           let contextName = context.context,
-                           contextName.lowercased().contains(excludeFilter.lowercased()) {
-                            continue
-                        }
-                        switch state.uppercased() {
-                        case "SUCCESS":
-                            successCount += 1
-                        case "FAILURE", "ERROR":
-                            failureCount += 1
-                        case "PENDING", "EXPECTED":
-                            pendingCount += 1
-                        default:
-                            break
-                        }
-                    } else {
-                        // CheckRun with no conclusion means in progress
-                        // Deduplicate by name if available
-                        if let name = context.name {
-                            if seenCheckNames.contains(name) {
-                                continue
-                            }
-                            seenCheckNames.insert(name)
-                        }
-                        pendingCount += 1
-                    }
-                }
+            // Parse CI contexts using shared helper
+            let ciContexts = (statusCheckRollup?.contexts?.nodes ?? []).map { ctx in
+                CIContextNode(
+                    name: ctx.name,
+                    conclusion: ctx.conclusion,
+                    state: ctx.state,
+                    context: ctx.context,
+                    workflowName: ctx.checkSuite?.workflowRun?.workflow?.name
+                )
             }
+            let excludeFilter = Self.loadCIStatusExcludeFilter()
+            let ciResult = Self.parseCIContexts(ciContexts, excludeFilter: excludeFilter)
 
             // Check if we need to fetch more CI contexts:
             // - Rollup state disagrees with first-page counts (FAILURE with no failures, or PENDING with no pending)
@@ -1147,8 +1199,8 @@ final class GitHubAPIClient: ObservableObject {
             let rollupState = statusCheckRollup?.state ?? ""
             let upperRollup = rollupState.uppercased()
             let initialContextCount = statusCheckRollup?.contexts?.nodes.count ?? 0
-            if ((upperRollup == "FAILURE" && failureCount == 0) ||
-                (upperRollup == "PENDING" && pendingCount == 0)),
+            if ((upperRollup == "FAILURE" && ciResult.failureCount == 0) ||
+                (upperRollup == "PENDING" && ciResult.pendingCount == 0)),
                let pageInfo = statusCheckRollup?.contexts?.pageInfo,
                pageInfo.hasNextPage,
                let endCursor = pageInfo.endCursor,
@@ -1166,18 +1218,22 @@ final class GitHubAPIClient: ObservableObject {
 
             // Derive CI status from our counts (not GitHub's rollup which may include excluded checks)
             let ciStatus: CIStatus?
-            if failureCount > 0 {
+            if ciResult.failureCount > 0 {
                 ciStatus = .failure
-            } else if pendingCount > 0 {
+            } else if ciResult.pendingCount > 0 {
                 ciStatus = .pending
-            } else if successCount > 0 {
+            } else if ciResult.successCount > 0 {
                 ciStatus = .success
             } else if statusCheckRollup != nil {
-                // No checks we count, but rollup exists - use expected
                 ciStatus = .expected
             } else {
                 ciStatus = nil
             }
+
+            let ciExtendedInfo: CIExtendedInfo? = ciResult.workflows.isEmpty ? nil : CIExtendedInfo(
+                isRunning: ciResult.isRunning,
+                workflows: Array(ciResult.workflows.values)
+            )
 
             // Determine category - if username provided, check if user is author
             let resolvedCategory: PRCategory
@@ -1236,15 +1292,16 @@ final class GitHubAPIClient: ObservableObject {
                 reviewThreads: reviewThreads,
                 category: resolvedCategory,
                 ciStatus: ciStatus,
-                checkSuccessCount: successCount,
-                checkFailureCount: failureCount,
-                checkPendingCount: pendingCount,
+                checkSuccessCount: ciResult.successCount,
+                checkFailureCount: ciResult.failureCount,
+                checkPendingCount: ciResult.pendingCount,
                 githubCIState: rollupState.isEmpty ? nil : rollupState,
                 myLastReviewState: myLastReviewState,
                 myLastReviewAt: myLastReviewAt,
                 reviewRequestedAt: reviewRequestedAt,
                 myThreadsAllResolved: myThreadsAllResolved,
-                approvalCount: approvalCount
+                approvalCount: approvalCount,
+                ciExtendedInfo: ciExtendedInfo
             )
         }
     }
@@ -1385,6 +1442,17 @@ private struct GraphQLResponse: Decodable {
         let conclusion: String?  // SUCCESS, FAILURE, NEUTRAL, CANCELLED, SKIPPED, TIMED_OUT, ACTION_REQUIRED, null (in progress)
         let state: String?       // PENDING, SUCCESS, FAILURE, ERROR, EXPECTED
         let context: String?     // StatusContext name (e.g., "ci/build", "code-review/reviewable")
+        let checkSuite: CheckSuiteNode?
+    }
+
+    struct CheckSuiteNode: Decodable {
+        let workflowRun: WorkflowRunNode?
+    }
+    struct WorkflowRunNode: Decodable {
+        let workflow: WorkflowNode?
+    }
+    struct WorkflowNode: Decodable {
+        let name: String?
     }
 }
 
@@ -1509,6 +1577,17 @@ private struct CombinedGraphQLResponse: Decodable {
         let conclusion: String?
         let state: String?
         let context: String?
+        let checkSuite: CheckSuiteNode?
+    }
+
+    struct CheckSuiteNode: Decodable {
+        let workflowRun: WorkflowRunNode?
+    }
+    struct WorkflowRunNode: Decodable {
+        let workflow: WorkflowNode?
+    }
+    struct WorkflowNode: Decodable {
+        let name: String?
     }
 
     struct ReviewsContainer: Decodable {
