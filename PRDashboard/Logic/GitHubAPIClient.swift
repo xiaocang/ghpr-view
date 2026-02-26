@@ -113,6 +113,7 @@ final class GitHubAPIClient: ObservableObject {
                                     ... on CheckRun {
                                         name
                                         conclusion
+                                        completedAt
                                         checkSuite {
                                             workflowRun {
                                                 workflow {
@@ -154,12 +155,14 @@ final class GitHubAPIClient: ObservableObject {
         let state: String?
         let context: String?
         let workflowName: String?
+        let completedAt: Date?
 
         var ciName: String? { name }
         var ciConclusion: String? { conclusion }
         var ciState: String? { state }
         var ciContext: String? { context }
         var ciWorkflowName: String? { workflowName }
+        var ciCompletedAt: Date? { completedAt }
     }
 
     private func parseCIContextsResponse(data: Data) throws -> CIContextsResult {
@@ -188,6 +191,7 @@ final class GitHubAPIClient: ObservableObject {
             struct ContextNode: Decodable {
                 let name: String?
                 let conclusion: String?
+                let completedAt: Date?
                 let state: String?
                 let context: String?
                 let checkSuite: CheckSuiteNode?
@@ -216,7 +220,8 @@ final class GitHubAPIClient: ObservableObject {
                 conclusion: node.conclusion,
                 state: node.state,
                 context: node.context,
-                workflowName: node.checkSuite?.workflowRun?.workflow?.name
+                workflowName: node.checkSuite?.workflowRun?.workflow?.name,
+                completedAt: node.completedAt
             )
         }
 
@@ -236,6 +241,7 @@ final class GitHubAPIClient: ObservableObject {
         var ciState: String? { get }
         var ciContext: String? { get }
         var ciWorkflowName: String? { get }
+        var ciCompletedAt: Date? { get }
     }
 
     /// Result of parsing CI contexts into workflow-grouped info
@@ -252,7 +258,12 @@ final class GitHubAPIClient: ObservableObject {
     private static func parseCIContexts<T: CIContextLike>(_ contexts: [T], excludeFilter: String, existing: CIParseResult = CIParseResult()) -> CIParseResult {
         var result = existing
 
-        for context in contexts.reversed() {
+        // Sort newest-first by completedAt so dedup keeps the latest result per check name.
+        // Entries without completedAt (in-progress checks, StatusContexts) sort to the end.
+        let sorted = contexts.sorted {
+            ($0.ciCompletedAt ?? .distantPast) > ($1.ciCompletedAt ?? .distantPast)
+        }
+        for context in sorted {
             if let conclusion = context.ciConclusion {
                 // CheckRun with conclusion
                 if let name = context.ciName {
@@ -399,6 +410,7 @@ final class GitHubAPIClient: ObservableObject {
                                                 ... on CheckRun {
                                                     name
                                                     conclusion
+                                                    completedAt
                                                     checkSuite {
                                                         workflowRun {
                                                             workflow {
@@ -541,6 +553,7 @@ final class GitHubAPIClient: ObservableObject {
                                                 ... on CheckRun {
                                                     name
                                                     conclusion
+                                                    completedAt
                                                     checkSuite {
                                                         workflowRun {
                                                             workflow {
@@ -680,7 +693,8 @@ final class GitHubAPIClient: ObservableObject {
                         conclusion: ctx.conclusion,
                         state: ctx.state,
                         context: ctx.context,
-                        workflowName: ctx.checkSuite?.workflowRun?.workflow?.name
+                        workflowName: ctx.checkSuite?.workflowRun?.workflow?.name,
+                        completedAt: ctx.completedAt
                     )
                 }
                 let excludeFilter = Self.loadCIStatusExcludeFilter()
@@ -1187,7 +1201,8 @@ final class GitHubAPIClient: ObservableObject {
                     conclusion: ctx.conclusion,
                     state: ctx.state,
                     context: ctx.context,
-                    workflowName: ctx.checkSuite?.workflowRun?.workflow?.name
+                    workflowName: ctx.checkSuite?.workflowRun?.workflow?.name,
+                    completedAt: ctx.completedAt
                 )
             }
             let excludeFilter = Self.loadCIStatusExcludeFilter()
@@ -1440,6 +1455,7 @@ private struct GraphQLResponse: Decodable {
         // CheckRun uses "name" and "conclusion", StatusContext uses "state" and "context"
         let name: String?        // CheckRun name (e.g., "build", "test")
         let conclusion: String?  // SUCCESS, FAILURE, NEUTRAL, CANCELLED, SKIPPED, TIMED_OUT, ACTION_REQUIRED, null (in progress)
+        let completedAt: Date?   // CheckRun completion timestamp (used for dedup ordering)
         let state: String?       // PENDING, SUCCESS, FAILURE, ERROR, EXPECTED
         let context: String?     // StatusContext name (e.g., "ci/build", "code-review/reviewable")
         let checkSuite: CheckSuiteNode?
@@ -1575,6 +1591,7 @@ private struct CombinedGraphQLResponse: Decodable {
     struct ContextNode: Decodable {
         let name: String?
         let conclusion: String?
+        let completedAt: Date?
         let state: String?
         let context: String?
         let checkSuite: CheckSuiteNode?
