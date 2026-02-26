@@ -278,6 +278,11 @@ final class GitHubAPIClient: ObservableObject {
                                 submittedAt
                             }
                         }
+                        latestReviews(first: 20) {
+                            nodes {
+                                state
+                            }
+                        }
                         timelineItems(last: 10, itemTypes: [REVIEW_REQUESTED_EVENT]) {
                             nodes {
                                 ... on ReviewRequestedEvent {
@@ -400,6 +405,11 @@ final class GitHubAPIClient: ObservableObject {
                                         }
                                     }
                                 }
+                            }
+                        }
+                        latestReviews(first: 20) {
+                            nodes {
+                                state
                             }
                         }
                     }
@@ -586,6 +596,10 @@ final class GitHubAPIClient: ObservableObject {
                     ciStatus = nil
                 }
 
+                let approvalCount = node.latestReviews?.nodes
+                    .filter { $0.state == "APPROVED" }
+                    .count ?? 0
+
                 return PullRequest(
                     id: databaseId,
                     number: node.number,
@@ -611,7 +625,8 @@ final class GitHubAPIClient: ObservableObject {
                     myLastReviewState: nil,
                     myLastReviewAt: nil,
                     reviewRequestedAt: nil,
-                    myThreadsAllResolved: false
+                    myThreadsAllResolved: false,
+                    approvalCount: approvalCount
                 )
             }
         } catch {
@@ -1187,6 +1202,11 @@ final class GitHubAPIClient: ObservableObject {
                 .compactMap { $0.createdAt }
                 .max()
 
+            // Count approvals from latestReviews
+            let approvalCount = node.latestReviews?.nodes
+                .filter { $0.state == "APPROVED" }
+                .count ?? 0
+
             // Check if all threads started by user are resolved
             let myThreadsAllResolved: Bool = {
                 guard let usernameLower else { return false }
@@ -1223,7 +1243,8 @@ final class GitHubAPIClient: ObservableObject {
                 myLastReviewState: myLastReviewState,
                 myLastReviewAt: myLastReviewAt,
                 reviewRequestedAt: reviewRequestedAt,
-                myThreadsAllResolved: myThreadsAllResolved
+                myThreadsAllResolved: myThreadsAllResolved,
+                approvalCount: approvalCount
             )
         }
     }
@@ -1274,6 +1295,7 @@ private struct GraphQLResponse: Decodable {
         let repository: Repository
         let reviewThreads: ReviewThreadsContainer?
         let commits: CommitsContainer?
+        let latestReviews: LatestReviewsContainer?
     }
 
     struct Author: Decodable {
@@ -1288,6 +1310,14 @@ private struct GraphQLResponse: Decodable {
 
     struct Owner: Decodable {
         let login: String
+    }
+
+    struct LatestReviewsContainer: Decodable {
+        let nodes: [LatestReviewNode]
+    }
+
+    struct LatestReviewNode: Decodable {
+        let state: String
     }
 
     struct ReviewThreadsContainer: Decodable {
@@ -1389,6 +1419,7 @@ private struct CombinedGraphQLResponse: Decodable {
         let reviewThreads: ReviewThreadsContainer?
         let commits: CommitsContainer?
         let reviews: ReviewsContainer?
+        let latestReviews: LatestReviewsContainer?
         let timelineItems: TimelineItemsContainer?
     }
 
@@ -1404,6 +1435,14 @@ private struct CombinedGraphQLResponse: Decodable {
 
     struct Owner: Decodable {
         let login: String
+    }
+
+    struct LatestReviewsContainer: Decodable {
+        let nodes: [LatestReviewNode]
+    }
+
+    struct LatestReviewNode: Decodable {
+        let state: String
     }
 
     struct ReviewThreadsContainer: Decodable {
