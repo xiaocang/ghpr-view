@@ -199,6 +199,7 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(SRCROOT)/PRDashboard/Helpers/GitVersion.generated.swift",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
