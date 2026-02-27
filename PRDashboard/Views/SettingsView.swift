@@ -1,9 +1,11 @@
 import SwiftUI
+import ServiceManagement
 
 struct SettingsView: View {
     @ObservedObject var viewModel: PRListViewModel
     @Environment(\.dismiss) private var dismiss
 
+    @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
     @State private var refreshInterval: Double = 60
     @State private var refreshOnOpen: Bool = true
     @State private var repositories: String = ""
@@ -97,6 +99,22 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.borderedProminent)
                     }
+                }
+
+                Section("General") {
+                    Toggle("Launch at login", isOn: $launchAtLogin)
+                        .onChange(of: launchAtLogin) { newValue in
+                            do {
+                                if newValue {
+                                    try SMAppService.mainApp.register()
+                                } else {
+                                    try SMAppService.mainApp.unregister()
+                                }
+                            } catch {
+                                // Revert toggle on failure
+                                launchAtLogin = !newValue
+                            }
+                        }
                 }
 
                 Section("Refresh") {
