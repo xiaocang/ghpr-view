@@ -1,7 +1,4 @@
 import SwiftUI
-import os
-
-private let logger = Logger(subsystem: "com.prdashboard", category: "MainView")
 
 struct MainView: View {
     @ObservedObject var viewModel: PRListViewModel
@@ -136,23 +133,17 @@ struct MainView: View {
         .padding(.bottom, 4)
     }
 
+    @ViewBuilder
     private func repoSection(repo: String, prs: [PullRequest], showCIStatus: Bool = true) -> some View {
-        let ids = prs.map { $0.id }
-        let idsStr = ids.map { String($0) }.joined(separator: ",")
-        let cat = prs.first?.category.rawValue ?? "none"
-        let _ = logger.info("repoSection: repo=\(repo, privacy: .public), count=\(prs.count), category=\(cat, privacy: .public), ids=[\(idsStr, privacy: .public)]")
-        return VStack(alignment: .leading, spacing: 0) {
-            ForEach(prs) { pr in
-                let _ = logger.info("PRRowView: id=\(pr.id) #\(pr.number) category=\(pr.category.rawValue, privacy: .public)")
-                PRRowView(
-                    pr: pr,
-                    onOpen: { viewModel.openPR(pr) },
-                    onCopyURL: { viewModel.copyURL(pr) },
-                    onRerunFailedCI: { viewModel.rerunFailedCI(pr) },
-                    showCIStatus: showCIStatus,
-                    showMyReviewStatus: viewModel.configuration.showMyReviewStatus
-                )
-            }
+        ForEach(prs) { pr in
+            PRRowView(
+                pr: pr,
+                onOpen: { viewModel.openPR(pr) },
+                onCopyURL: { viewModel.copyURL(pr) },
+                onRerunFailedCI: { viewModel.rerunFailedCI(pr) },
+                showCIStatus: showCIStatus,
+                showMyReviewStatus: viewModel.configuration.showMyReviewStatus
+            )
         }
     }
 

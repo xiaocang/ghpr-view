@@ -117,9 +117,7 @@ final class PRListViewModel: ObservableObject {
     }
 
     var reviewRequestPRs: [PullRequest] {
-        let result = filteredPRs.filter { $0.category == .reviewRequest }
-        logger.info("reviewRequestPRs count: \(result.count), all categories: \(Set(self.filteredPRs.map { $0.category.rawValue }))")
-        return result
+        filteredPRs.filter { $0.category == .reviewRequest }
     }
 
     var groupedAuthoredPRs: [(String, [PullRequest])] {
@@ -127,9 +125,7 @@ final class PRListViewModel: ObservableObject {
     }
 
     var groupedReviewPRs: [(String, [PullRequest])] {
-        let result = groupByRepo(reviewRequestPRs)
-        logger.info("groupedReviewPRs count: \(result.count), repos: \(result.map { $0.0 })")
-        return result
+        groupByRepo(reviewRequestPRs)
     }
 
     private var filteredMergedPRs: [PullRequest] {
