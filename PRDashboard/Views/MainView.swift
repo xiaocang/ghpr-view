@@ -17,7 +17,7 @@ struct MainView: View {
                 } else if let error = viewModel.prList.error {
                     // Error state
                     errorView(error)
-                } else if viewModel.filteredPRs.isEmpty && viewModel.mergedTodayPRs.isEmpty {
+                } else if viewModel.filteredPRs.isEmpty && viewModel.mergedLast24hPRs.isEmpty {
                     // Empty state
                     emptyView
                 } else {
@@ -112,10 +112,10 @@ struct MainView: View {
                 }
 
                 // Merged Today section
-                if !viewModel.mergedTodayPRs.isEmpty {
-                    sectionHeader("Merged Today", count: viewModel.mergedTodayPRs.count)
+                if !viewModel.mergedLast24hPRs.isEmpty {
+                    sectionHeader("Merged Today", count: viewModel.mergedLast24hPRs.count)
 
-                    ForEach(viewModel.groupedMergedTodayPRs, id: \.0) { repo, prs in
+                    ForEach(viewModel.groupedMergedLast24hPRs, id: \.0) { repo, prs in
                         repoSection(repo: repo, prs: prs, showCIStatus: false)
                             .id("merged-\(repo)")
                     }

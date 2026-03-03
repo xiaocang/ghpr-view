@@ -1579,7 +1579,7 @@ final class GitHubAPIClient: ObservableObject {
         var trimmed = cache
         if trimmed.count > maxJiraCacheSize {
             let excess = trimmed.count - maxJiraCacheSize
-            trimmed = Dictionary(uniqueKeysWithValues: trimmed.dropFirst(excess))
+            trimmed = Dictionary(uniqueKeysWithValues: trimmed.dropFirst(excess).map { ($0.key, $0.value) })
         }
         UserDefaults.standard.set(trimmed, forKey: jiraCacheKey)
     }
