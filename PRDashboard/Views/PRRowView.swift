@@ -23,6 +23,10 @@ struct PRRowView: View {
     let onOpen: () -> Void
     let onCopyURL: () -> Void
     var onRerunFailedCI: (() -> Void)?
+    var onTogglePin: (() -> Void)?
+    var onToggleCIAutoRetry: (() -> Void)?
+    var isPinned: Bool = false
+    var ciAutoRetryRound: Int?  // nil = not active, 0-3 = current round
     var showCIStatus: Bool = true
     var showMyReviewStatus: Bool = false
 
@@ -50,6 +54,12 @@ struct PRRowView: View {
             VStack(alignment: .leading, spacing: 4) {
                 // Repo and PR number
                 HStack(spacing: 4) {
+                    if isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 9))
+                            .foregroundColor(.orange)
+                    }
+
                     Text(pr.repoFullName)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
@@ -147,8 +157,38 @@ struct PRRowView: View {
             Button("Copy URL") {
                 onCopyURL()
             }
-            if pr.category == .authored && pr.checkFailureCount > 0 {
+            if let onTogglePin {
                 Divider()
+                Button {
+                    onTogglePin()
+                } label: {
+                    Label(
+                        isPinned ? "Unpin" : "Pin to Top",
+                        systemImage: isPinned ? "pin.slash" : "pin"
+                    )
+                }
+            }
+            if let onToggleCIAutoRetry, pr.category == .authored,
+               (ciAutoRetryRound != nil || pr.checkFailureCount > 0) {
+                Divider()
+                if let round = ciAutoRetryRound {
+                    Button {
+                        onToggleCIAutoRetry()
+                    } label: {
+                        Label("Cancel Auto-retry (\(round)/3)", systemImage: "xmark.circle")
+                    }
+                } else {
+                    Button {
+                        onToggleCIAutoRetry()
+                    } label: {
+                        Label("Auto-retry CI (3x)", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                }
+            }
+            if pr.category == .authored && pr.checkFailureCount > 0 {
+                if onToggleCIAutoRetry == nil {
+                    Divider()
+                }
                 Button {
                     onRerunFailedCI?()
                 } label: {

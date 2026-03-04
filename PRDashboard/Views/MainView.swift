@@ -95,8 +95,33 @@ struct MainView: View {
                 if !viewModel.authoredPRs.isEmpty {
                     sectionHeader("My PRs", count: viewModel.authoredPRs.count)
 
+                    // Pinned PRs at top
+                    if !viewModel.pinnedAuthoredPRs.isEmpty {
+                        ForEach(viewModel.pinnedAuthoredPRs) { pr in
+                            PRRowView(
+                                pr: pr,
+                                onOpen: { viewModel.openPR(pr) },
+                                onCopyURL: { viewModel.copyURL(pr) },
+                                onRerunFailedCI: { viewModel.rerunFailedCI(pr) },
+                                onTogglePin: { viewModel.togglePin(pr) },
+                                onToggleCIAutoRetry: {
+                                    if viewModel.ciAutoRetryRound(for: pr) != nil {
+                                        viewModel.cancelCIAutoRetry(pr)
+                                    } else {
+                                        viewModel.enableCIAutoRetry(pr)
+                                    }
+                                },
+                                isPinned: true,
+                                ciAutoRetryRound: viewModel.ciAutoRetryRound(for: pr),
+                                showCIStatus: true,
+                                showMyReviewStatus: viewModel.configuration.showMyReviewStatus
+                            )
+                        }
+                    }
+
+                    // Unpinned PRs grouped by repo
                     ForEach(viewModel.groupedAuthoredPRs, id: \.0) { repo, prs in
-                        repoSection(repo: repo, prs: prs)
+                        repoSection(repo: repo, prs: prs, showPin: true)
                             .id("authored-\(repo)")
                     }
                 }
@@ -142,13 +167,15 @@ struct MainView: View {
     }
 
     @ViewBuilder
-    private func repoSection(repo: String, prs: [PullRequest], showCIStatus: Bool = true) -> some View {
+    private func repoSection(repo: String, prs: [PullRequest], showCIStatus: Bool = true, showPin: Bool = false) -> some View {
         ForEach(prs) { pr in
             PRRowView(
                 pr: pr,
                 onOpen: { viewModel.openPR(pr) },
                 onCopyURL: { viewModel.copyURL(pr) },
                 onRerunFailedCI: { viewModel.rerunFailedCI(pr) },
+                onTogglePin: showPin ? { viewModel.togglePin(pr) } : nil,
+                isPinned: showPin && viewModel.isPinned(pr),
                 showCIStatus: showCIStatus,
                 showMyReviewStatus: viewModel.configuration.showMyReviewStatus
             )
