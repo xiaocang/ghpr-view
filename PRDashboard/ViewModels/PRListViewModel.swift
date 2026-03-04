@@ -160,10 +160,6 @@ final class PRListViewModel: ObservableObject {
         groupByRepo(mergedLast24hPRs, sortByMergedDate: true)
     }
 
-    // Backward compatibility for views still using the old naming.
-    var mergedTodayPRs: [PullRequest] { mergedLast24hPRs }
-    var groupedMergedTodayPRs: [(String, [PullRequest])] { groupedMergedLast24hPRs }
-
     var summaryReadyToMerge: Int {
         authoredPRs.filter { $0.approvalCount > 0 && $0.ciStatus == .success && ($0.changesRequestedCount ?? 0) == 0 }.count
     }
@@ -183,6 +179,7 @@ final class PRListViewModel: ObservableObject {
     var summaryWaitingForMyReview: Int {
         reviewRequestPRs.filter { $0.myReviewStatus == .waiting }.count
     }
+
 
     var totalUnresolvedCount: Int {
         prList.totalUnresolvedCount
