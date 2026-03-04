@@ -24,7 +24,9 @@ struct PRRowView: View {
     let onCopyURL: () -> Void
     var onRerunFailedCI: (() -> Void)?
     var onTogglePin: (() -> Void)?
+    var onToggleCIAutoRetry: (() -> Void)?
     var isPinned: Bool = false
+    var ciAutoRetryRound: Int?  // nil = not active, 0-3 = current round
     var showCIStatus: Bool = true
     var showMyReviewStatus: Bool = false
 
@@ -166,8 +168,27 @@ struct PRRowView: View {
                     )
                 }
             }
-            if pr.category == .authored && pr.checkFailureCount > 0 {
+            if let onToggleCIAutoRetry, pr.category == .authored,
+               ciAutoRetryRound != nil || pr.checkFailureCount > 0 {
                 Divider()
+                if let round = ciAutoRetryRound {
+                    Button {
+                        onToggleCIAutoRetry()
+                    } label: {
+                        Label("Cancel Auto-retry (\(round)/3)", systemImage: "xmark.circle")
+                    }
+                } else {
+                    Button {
+                        onToggleCIAutoRetry()
+                    } label: {
+                        Label("Auto-retry CI (3x)", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                }
+            }
+            if pr.category == .authored && pr.checkFailureCount > 0 {
+                if onToggleCIAutoRetry == nil {
+                    Divider()
+                }
                 Button {
                     onRerunFailedCI?()
                 } label: {

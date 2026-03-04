@@ -11,6 +11,7 @@ final class PRListViewModel: ObservableObject {
     @Published var searchText: String = ""
     @Published private(set) var authState: AuthState = .empty
     @Published private(set) var pinnedPRIdentifiers: Set<String> = []
+    @Published private(set) var ciRetryTracking: [String: CIRetryState] = [:]
     @Published private(set) var deviceCode: DeviceCodeInfo?
     @Published private(set) var isAuthenticating: Bool = false
     @Published private(set) var authError: Error?
@@ -101,6 +102,14 @@ final class PRListViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] identifiers in
                 self?.pinnedPRIdentifiers = identifiers
+            }
+            .store(in: &cancellables)
+
+        // Bind CI auto-retry tracking
+        prManager.$ciRetryTracking
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] tracking in
+                self?.ciRetryTracking = tracking
             }
             .store(in: &cancellables)
     }
@@ -276,6 +285,20 @@ final class PRListViewModel: ObservableObject {
 
     func togglePin(_ pr: PullRequest) {
         prManager.togglePinPR(pr.pinIdentifier)
+    }
+
+    /// Returns nil if auto-retry is not active, otherwise the max retry round (0-3).
+    func ciAutoRetryRound(for pr: PullRequest) -> Int? {
+        guard let state = ciRetryTracking[pr.pinIdentifier] else { return nil }
+        return state.maxRetryRound
+    }
+
+    func enableCIAutoRetry(_ pr: PullRequest) {
+        prManager.enableCIAutoRetry(for: pr)
+    }
+
+    func cancelCIAutoRetry(_ pr: PullRequest) {
+        prManager.cancelCIAutoRetry(for: pr)
     }
 
     func rerunFailedCI(_ pr: PullRequest) {

@@ -104,7 +104,15 @@ struct MainView: View {
                                 onCopyURL: { viewModel.copyURL(pr) },
                                 onRerunFailedCI: { viewModel.rerunFailedCI(pr) },
                                 onTogglePin: { viewModel.togglePin(pr) },
+                                onToggleCIAutoRetry: {
+                                    if viewModel.ciAutoRetryRound(for: pr) != nil {
+                                        viewModel.cancelCIAutoRetry(pr)
+                                    } else {
+                                        viewModel.enableCIAutoRetry(pr)
+                                    }
+                                },
                                 isPinned: true,
+                                ciAutoRetryRound: viewModel.ciAutoRetryRound(for: pr),
                                 showCIStatus: true,
                                 showMyReviewStatus: viewModel.configuration.showMyReviewStatus
                             )
