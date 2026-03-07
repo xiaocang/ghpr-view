@@ -11,6 +11,7 @@ final class PRListViewModel: ObservableObject {
     @Published var searchText: String = ""
     @Published private(set) var authState: AuthState = .empty
     @Published private(set) var pinnedPRIdentifiers: Set<String> = []
+    @Published private(set) var pinChangeToken = UUID()
     @Published private(set) var ciRetryTracking: [String: CIRetryState] = [:]
     @Published private(set) var deviceCode: DeviceCodeInfo?
     @Published private(set) var isAuthenticating: Bool = false
@@ -283,8 +284,19 @@ final class PRListViewModel: ObservableObject {
     }
 
     func togglePin(_ pr: PullRequest) {
-        prManager.togglePinPR(pr.pinIdentifier)
+        let identifier = pr.pinIdentifier
+        prManager.togglePinPR(identifier)
         pinnedPRIdentifiers = prManager.pinnedPRIdentifiers
+        logger.info("Pin toggled: \(identifier) → pinned=\(self.pinnedPRIdentifiers.contains(identifier)), total=\(self.pinnedPRIdentifiers.count)")
+
+        // Force SwiftUI to rebuild the authored PRs section after context menu dismisses.
+        // Changing pinChangeToken invalidates the .id() on the section container in MainView,
+        // causing a full view tree rebuild that cannot be diff-optimized away.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard let self else { return }
+            self.pinChangeToken = UUID()
+        }
     }
 
     /// Returns nil if auto-retry is not active, otherwise the max retry round (0-3).
