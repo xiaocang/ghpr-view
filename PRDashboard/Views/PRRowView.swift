@@ -160,7 +160,7 @@ struct PRRowView: View {
             if let onTogglePin {
                 Divider()
                 Button {
-                    onTogglePin()
+                    DispatchQueue.main.async { onTogglePin() }
                 } label: {
                     Label(
                         isPinned ? "Unpin" : "Pin to Top",
@@ -169,17 +169,17 @@ struct PRRowView: View {
                 }
             }
             if let onToggleCIAutoRetry, pr.category == .authored,
-               (ciAutoRetryRound != nil || pr.checkFailureCount > 0) {
+                (ciAutoRetryRound != nil || pr.checkFailureCount > 0) {
                 Divider()
                 if let round = ciAutoRetryRound {
                     Button {
-                        onToggleCIAutoRetry()
+                        DispatchQueue.main.async { onToggleCIAutoRetry() }
                     } label: {
                         Label("Cancel Auto-retry (\(round)/3)", systemImage: "xmark.circle")
                     }
                 } else {
                     Button {
-                        onToggleCIAutoRetry()
+                        DispatchQueue.main.async { onToggleCIAutoRetry() }
                     } label: {
                         Label("Auto-retry CI (3x)", systemImage: "arrow.triangle.2.circlepath")
                     }
@@ -190,7 +190,7 @@ struct PRRowView: View {
                     Divider()
                 }
                 Button {
-                    onRerunFailedCI?()
+                    DispatchQueue.main.async { onRerunFailedCI?() }
                 } label: {
                     Label("Rerun Failed CI", systemImage: "arrow.clockwise")
                 }

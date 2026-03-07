@@ -592,7 +592,7 @@ final class GitHubAPIClient: ObservableObject {
         """
     }
 
-    private func executeGraphQL(query: String) async throws -> Data {
+    private func executeGraphQL(query: String, attempt: Int = 1) async throws -> Data {
         var request = URLRequest(url: graphQLURL)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -631,6 +631,9 @@ final class GitHubAPIClient: ObservableObject {
 
         switch httpResponse.statusCode {
         case 200:
+            if attempt > 1 {
+                logger.info("GitHub API request succeeded on attempt \(attempt) after previous 5xx error")
+            }
             // Check for GraphQL errors in response
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let errors = json["errors"] as? [[String: Any]],
@@ -649,7 +652,18 @@ final class GitHubAPIClient: ObservableObject {
                 throw APIError.rateLimited(resetDate: resetDate)
             }
             throw APIError.unauthorized
+        case 500, 502, 503, 504:
+            let maxAttempts = 3
+            if attempt < maxAttempts {
+                let delaySeconds: UInt64 = UInt64(attempt) * 2
+                logger.warning("GitHub API HTTP \(httpResponse.statusCode) on attempt \(attempt)/\(maxAttempts), retrying in \(delaySeconds)s")
+                try await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
+                return try await executeGraphQL(query: query, attempt: attempt + 1)
+            }
+            logger.error("GitHub API HTTP \(httpResponse.statusCode) after \(maxAttempts) attempts, giving up")
+            throw APIError.unknown("HTTP \(httpResponse.statusCode)")
         default:
+            logger.warning("GitHub API unexpected HTTP \(httpResponse.statusCode)")
             throw APIError.unknown("HTTP \(httpResponse.statusCode)")
         }
     }

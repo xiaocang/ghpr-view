@@ -97,17 +97,16 @@ final class PRListViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Bind pinned PRs
+        // Keep pin-related manager updates synchronous on the main actor so rows
+        // can move sections immediately after a context-menu action.
         prManager.$pinnedPRIdentifiers
-            .receive(on: DispatchQueue.main)
             .sink { [weak self] identifiers in
                 self?.pinnedPRIdentifiers = identifiers
             }
             .store(in: &cancellables)
 
-        // Bind CI auto-retry tracking
+        // Match the pin binding above to avoid an extra queue hop for row state.
         prManager.$ciRetryTracking
-            .receive(on: DispatchQueue.main)
             .sink { [weak self] tracking in
                 self?.ciRetryTracking = tracking
             }
@@ -285,6 +284,7 @@ final class PRListViewModel: ObservableObject {
 
     func togglePin(_ pr: PullRequest) {
         prManager.togglePinPR(pr.pinIdentifier)
+        pinnedPRIdentifiers = prManager.pinnedPRIdentifiers
     }
 
     /// Returns nil if auto-retry is not active, otherwise the max retry round (0-3).

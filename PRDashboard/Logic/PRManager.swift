@@ -544,14 +544,26 @@ final class PRManager: PRManagerType, ObservableObject {
     // MARK: - Pin PR
 
     func pinPR(_ identifier: String) {
-        pinnedPRIdentifiers.insert(identifier)
-        Self.savePinnedPRs(pinnedPRIdentifiers)
+        // NOTE: Avoid in-place mutation on @Published collections; ensure a new value is assigned
+        // so Combine publishes changes and SwiftUI updates immediately.
+        var updated = pinnedPRIdentifiers
+        updated.insert(identifier)
+        pinnedPRIdentifiers = updated
+        Self.savePinnedPRs(updated)
     }
 
     func unpinPR(_ identifier: String) {
-        pinnedPRIdentifiers.remove(identifier)
-        ciRetryTracking.removeValue(forKey: identifier)
-        Self.savePinnedPRs(pinnedPRIdentifiers)
+        // Same rationale as pinPR(_:): assign a new Set to trigger @Published emission.
+        var updated = pinnedPRIdentifiers
+        updated.remove(identifier)
+        pinnedPRIdentifiers = updated
+
+        // Keep CI auto-retry tracking consistent for this PR.
+        var updatedTracking = ciRetryTracking
+        updatedTracking.removeValue(forKey: identifier)
+        ciRetryTracking = updatedTracking
+
+        Self.savePinnedPRs(updated)
     }
 
     func togglePinPR(_ identifier: String) {
