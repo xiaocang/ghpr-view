@@ -95,39 +95,35 @@ struct MainView: View {
                 if !viewModel.authoredPRs.isEmpty {
                     sectionHeader("My PRs", count: viewModel.authoredPRs.count)
 
-                    // Pinned + unpinned authored PRs, force re-render on pin state change
-                    VStack(spacing: 0) {
-                        // Pinned PRs at top
-                        if !viewModel.pinnedAuthoredPRs.isEmpty {
-                            ForEach(viewModel.pinnedAuthoredPRs) { pr in
-                                PRRowView(
-                                    pr: pr,
-                                    onOpen: { viewModel.openPR(pr) },
-                                    onCopyURL: { viewModel.copyURL(pr) },
-                                    onRerunFailedCI: { viewModel.rerunFailedCI(pr) },
-                                    onTogglePin: { viewModel.togglePin(pr) },
-                                    onToggleCIAutoRetry: {
-                                        if viewModel.ciAutoRetryRound(for: pr) != nil {
-                                            viewModel.cancelCIAutoRetry(pr)
-                                        } else {
-                                            viewModel.enableCIAutoRetry(pr)
-                                        }
-                                    },
-                                    isPinned: true,
-                                    ciAutoRetryRound: viewModel.ciAutoRetryRound(for: pr),
-                                    showCIStatus: true,
-                                    showMyReviewStatus: viewModel.configuration.showMyReviewStatus
-                                )
-                            }
-                        }
-
-                        // Unpinned PRs grouped by repo
-                        ForEach(viewModel.groupedAuthoredPRs, id: \.0) { repo, prs in
-                            repoSection(repo: repo, prs: prs, showPin: true)
-                                .id("authored-\(repo)")
+                    // Pinned PRs at top
+                    if !viewModel.pinnedAuthoredPRs.isEmpty {
+                        ForEach(viewModel.pinnedAuthoredPRs) { pr in
+                            PRRowView(
+                                pr: pr,
+                                onOpen: { viewModel.openPR(pr) },
+                                onCopyURL: { viewModel.copyURL(pr) },
+                                onRerunFailedCI: { viewModel.rerunFailedCI(pr) },
+                                onTogglePin: { viewModel.togglePin(pr) },
+                                onToggleCIAutoRetry: {
+                                    if viewModel.ciAutoRetryRound(for: pr) != nil {
+                                        viewModel.cancelCIAutoRetry(pr)
+                                    } else {
+                                        viewModel.enableCIAutoRetry(pr)
+                                    }
+                                },
+                                isPinned: true,
+                                ciAutoRetryRound: viewModel.ciAutoRetryRound(for: pr),
+                                showCIStatus: true,
+                                showMyReviewStatus: viewModel.configuration.showMyReviewStatus
+                            )
                         }
                     }
-                    .id(viewModel.pinChangeToken)
+
+                    // Unpinned PRs grouped by repo
+                    ForEach(viewModel.groupedAuthoredPRs, id: \.0) { repo, prs in
+                        repoSection(repo: repo, prs: prs, showPin: true)
+                            .id("authored-\(repo)")
+                    }
                 }
 
                 // Review Requests section
@@ -153,6 +149,7 @@ struct MainView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
         }
+        .id(viewModel.pinChangeToken)
     }
 
     private func sectionHeader(_ title: String, count: Int) -> some View {
