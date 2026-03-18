@@ -716,7 +716,7 @@ final class GitHubAPIClient: ObservableObject {
 
                 // Derive CI status from our counts (not GitHub's rollup which may include excluded checks)
                 let rollupState = statusCheckRollup?.state
-                let ciStatus: CIStatus?
+                var ciStatus: CIStatus?
                 if ciResult.failureCount > 0 {
                     ciStatus = .failure
                 } else if ciResult.pendingCount > 0 {
@@ -729,6 +729,16 @@ final class GitHubAPIClient: ObservableObject {
                     ciStatus = nil
                 }
 
+                // Trust GitHub's rollup state when it says PENDING but we derived success.
+                // This handles QUEUED checks not yet visible in individual contexts.
+                var effectivePendingCount = ciResult.pendingCount
+                var effectiveIsRunning = ciResult.isRunning
+                if ciStatus == .success, rollupState?.uppercased() == "PENDING" {
+                    ciStatus = .pending
+                    effectivePendingCount = max(effectivePendingCount, 1)
+                    effectiveIsRunning = true
+                }
+
                 let approvalCount = node.latestReviews?.nodes
                     .filter { $0.state == "APPROVED" }
                     .count ?? 0
@@ -738,7 +748,7 @@ final class GitHubAPIClient: ObservableObject {
                     .count ?? 0
 
                 let ciExtendedInfo: CIExtendedInfo? = ciResult.workflows.isEmpty ? nil : CIExtendedInfo(
-                    isRunning: ciResult.isRunning,
+                    isRunning: effectiveIsRunning,
                     workflows: Array(ciResult.workflows.values)
                 )
 
@@ -763,7 +773,7 @@ final class GitHubAPIClient: ObservableObject {
                     ciStatus: ciStatus,
                     checkSuccessCount: ciResult.successCount,
                     checkFailureCount: ciResult.failureCount,
-                    checkPendingCount: ciResult.pendingCount,
+                    checkPendingCount: effectivePendingCount,
                     githubCIState: rollupState,
                     myLastReviewState: nil,
                     myLastReviewAt: nil,
@@ -1252,7 +1262,7 @@ final class GitHubAPIClient: ObservableObject {
             }
 
             // Derive CI status from our counts (not GitHub's rollup which may include excluded checks)
-            let ciStatus: CIStatus?
+            var ciStatus: CIStatus?
             if ciResult.failureCount > 0 {
                 ciStatus = .failure
             } else if ciResult.pendingCount > 0 {
@@ -1265,8 +1275,18 @@ final class GitHubAPIClient: ObservableObject {
                 ciStatus = nil
             }
 
+            // Trust GitHub's rollup state when it says PENDING but we derived success.
+            // This handles QUEUED checks not yet visible in individual contexts.
+            var effectivePendingCount = ciResult.pendingCount
+            var effectiveIsRunning = ciResult.isRunning
+            if ciStatus == .success, upperRollup == "PENDING" {
+                ciStatus = .pending
+                effectivePendingCount = max(effectivePendingCount, 1)
+                effectiveIsRunning = true
+            }
+
             let ciExtendedInfo: CIExtendedInfo? = ciResult.workflows.isEmpty ? nil : CIExtendedInfo(
-                isRunning: ciResult.isRunning,
+                isRunning: effectiveIsRunning,
                 workflows: Array(ciResult.workflows.values)
             )
 
@@ -1334,7 +1354,7 @@ final class GitHubAPIClient: ObservableObject {
                 ciStatus: ciStatus,
                 checkSuccessCount: ciResult.successCount,
                 checkFailureCount: ciResult.failureCount,
-                checkPendingCount: ciResult.pendingCount,
+                checkPendingCount: effectivePendingCount,
                 githubCIState: rollupState.isEmpty ? nil : rollupState,
                 myLastReviewState: myLastReviewState,
                 myLastReviewAt: myLastReviewAt,
@@ -1468,7 +1488,7 @@ final class GitHubAPIClient: ObservableObject {
         let excludeFilter = Self.loadCIStatusExcludeFilter()
         let ciResult = Self.parseCIContexts(ciContexts, excludeFilter: excludeFilter)
 
-        let ciStatus: CIStatus?
+        var ciStatus: CIStatus?
         if ciResult.failureCount > 0 {
             ciStatus = .failure
         } else if ciResult.pendingCount > 0 {
@@ -1479,8 +1499,18 @@ final class GitHubAPIClient: ObservableObject {
             ciStatus = .expected
         }
 
+        // Trust GitHub's rollup state when it says PENDING but we derived success.
+        // This handles QUEUED checks not yet visible in individual contexts.
+        var effectivePendingCount = ciResult.pendingCount
+        var effectiveIsRunning = ciResult.isRunning
+        if ciStatus == .success, rollup.state.uppercased() == "PENDING" {
+            ciStatus = .pending
+            effectivePendingCount = max(effectivePendingCount, 1)
+            effectiveIsRunning = true
+        }
+
         let ciExtendedInfo: CIExtendedInfo? = ciResult.workflows.isEmpty ? nil : CIExtendedInfo(
-            isRunning: ciResult.isRunning,
+            isRunning: effectiveIsRunning,
             workflows: Array(ciResult.workflows.values)
         )
 
@@ -1488,7 +1518,7 @@ final class GitHubAPIClient: ObservableObject {
             ciStatus: ciStatus,
             checkSuccessCount: ciResult.successCount,
             checkFailureCount: ciResult.failureCount,
-            checkPendingCount: ciResult.pendingCount,
+            checkPendingCount: effectivePendingCount,
             ciExtendedInfo: ciExtendedInfo
         )
     }
